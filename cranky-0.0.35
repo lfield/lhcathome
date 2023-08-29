@@ -431,8 +431,8 @@ function check_local_requirements {
     fi
         
     sudoers_file="/etc/sudoers.d/50-lhcathome_boinc"
-    if ! grep -qm1 "$sudoers_file" <(sudo -l) 2>/dev/null; then
-        log_info "Can't find '$sudoers_file'."
+    if ! grep -qm1 "$sudoers_file" <(sudo -nl) 2>/dev/null; then
+        log_info "Can't find or read '$sudoers_file'."
         (( ret_clr < 1 )) && ret_clr=1
     else
         if ! sudo -n /usr/bin/cat $sudoers_file >/dev/null 2>&1; then
