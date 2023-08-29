@@ -1,0 +1,234 @@
+#!/bin/bash
+
+function send_to_log {
+    echo $(date +"%R:%S %Z %:z %Y-%m-%d:") "$(basename $0): [$1] $2" >&2
+}
+
+function log_error {
+    send_to_log "ERROR" "$1"
+}
+
+function log_warning {
+    send_to_log "WARNING" "$1"
+}
+
+function log_info {
+    send_to_log "INFO" "$1"
+}
+
+Theory=("sft.cern.ch" "grid.cern.ch" "cernvm-prod.cern.ch" "alice.cern.ch")
+
+function get_boinc_info {
+    if [ ! -f init_data.xml ] ; then
+	log_error "'init_data.xml' is mising."
+        return 1
+    fi
+    attribute=$(grep "^<$1>" init_data.xml | cut -d '>' -f2 | cut -d '<' -f1)
+    echo ${attribute}
+}
+
+function check_cvmfs {
+    log_info "Checking CVMFS."
+    cvmfs_config=$(which cvmfs_config 2>/dev/null)
+    if [ $? -gt 0 ] ; then
+        log_error "'which' could not locate the command 'cvmfs_config'."
+        return 1
+    fi
+
+    if [ ! -d /cvmfs ] ; then
+        log_error "CVMFS mount point /cvmfs not found."
+        return 1
+    fi
+
+    repos=$app[@]
+    for repo in ${!repos}; do 
+	for command in probe stat ; do
+            cvmfs_config ${command} ${repo}
+	    if [ $? -gt 0 ] ; then
+                log_error "'cvmfs_config ${command} ${repo}' failed."
+                return 1
+	    fi
+	done
+    done
+}
+
+function check_runc {
+    log_info "Checking runc."
+    if grep -q cgroup2 /proc/mounts; then
+        runc="/cvmfs/grid.cern.ch/vc/containers/runc.new"
+    else
+	runc="/cvmfs/grid.cern.ch/vc/containers/runc.old"
+    fi
+    if [ ! -e ${runc} ] ; then
+        log_error "${runc} does not exist."
+        return 1
+    fi
+    ${runc} -v > /dev/null
+    if [ $? -gt 0 ] ; then
+        log_error "'runc -v' failed."
+        return 1
+    fi
+    if [ -e /proc/sys/user/max_user_namespaces ] ; then
+        value=$(cat /proc/sys/user/max_user_namespaces)
+        if [ ${value} -eq 0 ] ; then
+            log_error "max_user_namespaces in /proc/sys/user/ is set to 0."
+            return 1
+	fi
+    fi
+    return
+}
+
+function create_filesystem {
+    log_info "Creating the filesystem."
+    if [ -e cernvm ] ; then
+        rm -r cernvm
+    fi
+    mkdir -p cernvm/rootfs
+    root="/cvmfs/cernvm-prod.cern.ch/cvm3"    
+    log_info "Using ${root}"
+    paths=('/srv' '/tmp' '/etc' '/usr' '/usr/local' '/var' '/var/cache' '/var/cvs' '/var/db' '/var/empty'
+           '/var/lib' '/var/local' '/var/lock' '/var/log' '/var/run' '/var/tmp' '/root' '/home' '/var/spool')
+    for path in ${paths[*]} ; do
+        mkdir cernvm/rootfs${path}
+    done
+
+    paths=('/bin' '/etc' '/lib' '/lib64' '/opt' '/sbin' '/usr/bin' '/usr/doc' '/usr/etc' '/usr/include'
+	   '/usr/lib' '/usr/lib64' '/usr/libexec' '/usr/sbin' '/usr/share' '/usr/src' '/usr/vice')
+    for path in ${paths[*]} ; do
+        ln -sf ${root}${path} cernvm/rootfs${path}
+    done
+    cp /cvmfs/grid.cern.ch/vc/containers/cernvm/config.json cernvm/config.json
+    mkdir -p cernvm/shared/html/job
+
+}
+
+function update_config {
+    log_info "Updating config.json."
+
+    sed -i "s/\"hostID\": 122/\"hostID\": $(id -u)/" cernvm/config.json
+    sed -i "s/\"hostID\": 129/\"hostID\": $(id -g)/" cernvm/config.json
+    slot=$(basename $(pwd))
+    if [ -d /sys/fs/cgroup/freezer/boinc/${slot} ]; then
+	sed -i "s/\"linux\": {/\"linux\": {\n \t\"cgroupsPath\": \"\/boinc\/${slot}\",/" cernvm/config.json
+    fi
+}
+function prepare_input { 
+    cp init_data.xml cernvm/shared/init_data.xml
+    mkdir cernvm/shared/bin
+    cp /cvmfs/grid.cern.ch/vc/containers/cernvm/copilot-config cernvm/shared/bin/copilot-config
+    chmod 755 cernvm/shared/bin/copilot-config
+    cp input cernvm/shared/job
+    chmod 755 cernvm/shared/job
+    sed -i 's/tar xzm/tar xzmo/' cernvm/shared/job
+    if [ $? -eq 1 ] ; then
+        log_error "'sed of input to add no-save-owner."
+        return 1
+    fi
+}
+
+function prepare_output {
+    log_info "Preparing output."
+    if [ -f cernvm/shared/runRivet.log ]; then
+	mkdir -p shared
+	tar -zcf shared/output.tgz  --exclude bin --exclude runPost.sh  --exclude html --exclude init_data.xml -C cernvm/shared .
+	ln -sf shared/output.tgz output.tgz  # To be compatible with the VBox App\
+	return 0
+    else
+        log_error "No output found."
+	return 1
+    fi
+}
+
+function pause {
+    result_id=$(get_boinc_info result_name)
+    log_info "Pausing container ${result_id}."
+    if grep -q cgroup2 /proc/mounts; then
+        runc="/cvmfs/grid.cern.ch/vc/containers/runc.new"
+    else
+	runc="/cvmfs/grid.cern.ch/vc/containers/runc.old"
+    fi
+    if [ -f /sys/fs/cgroup/freezer/boinc/freezer.state || -d /sys/fs/cgroup/freezer/boinc ]; then
+	${runc} --root state pause ${result_id}
+    else
+	log_warning "Cannot pause container as /sys/fs/cgroup/freezer/boinc/freezer.state or /sys/fs/cgroup/freezer/boinc do not exist."
+    fi
+}
+
+function resume {
+    result_id=$(get_boinc_info result_name)
+    log_info "Resuming container ${result_id}."
+    /cvmfs/grid.cern.ch/vc/containers/runc --root state resume ${result_id}
+}
+
+function create_cgroup() {
+    if [ -d /sys/fs/cgroup/freezer/boinc ]; then
+        slot=$(basename $(pwd))
+        log_info "Creating cgroup for slot ${slot}"
+        CGROUPS=( freezer cpuset devices memory "cpu,cpuacct" pids blkio hugetlb net_cls net_prio perf_event freezer )
+        CGROUP_MOUNT="/sys/fs/cgroup"
+        CGROUP_PATH="boinc/${slot}"
+        for cg in "${CGROUPS[@]}"
+        do
+	    mkdir -p "$CGROUP_MOUNT/$cg/$CGROUP_PATH"
+        done
+    else
+        CGROUPS=( cpuset memory io pids freezer )
+        CGROUP_MOUNT="/sys/fs/cgroup/unified"
+        CGROUP_PATH="boinc"
+
+        for cg in "${CGROUPS[@]}"
+        do
+            mkdir -p "$CGROUP_MOUNT/$cg/$CGROUP_PATH"
+        done
+    fi
+}
+
+function run {
+    log_info "Running Container 'runc'."
+    if grep -q cgroup2 /proc/mounts; then
+        runc="/cvmfs/grid.cern.ch/vc/containers/runc.new"
+    else
+	runc="/cvmfs/grid.cern.ch/vc/containers/runc.old"
+    fi
+    result_id=$(get_boinc_info result_name)
+    trap pause SIGTSTP
+    trap resume SIGCONT
+    read_runrivet_log $$ &
+    ${runc} --root state run -b cernvm ${result_id} &
+    child=$! 
+    while true
+    do
+	wait ${child}
+	status=$?
+	if [ ! ${status} -eq 146 ] && [ ! ${status} -eq 148 ]; then 
+	    log_info "Container 'runc' finished with status code ${status}."
+	    return
+	fi
+    done
+}
+
+function read_runrivet_log {
+    while [ ! -e cernvm/shared/runRivet.log ] ; do sleep 2; done
+    local logline1="$(head -n 1 cernvm/shared/runRivet.log 2>/dev/null)"
+    log_info "${logline1}"
+}
+
+
+function fail {
+    exit 206
+}
+
+app=$(get_boinc_info app_name)
+ if [ $? -gt 0 ] ; then
+     fail
+ fi
+log_info "Detected ${app} App"
+check_cvmfs ${app} || fail
+check_runc || fail
+create_filesystem
+create_cgroup
+update_config
+prepare_input
+run
+prepare_output || fail
+rm -rf cernvm # Clean up
