@@ -20,14 +20,14 @@ Theory=("sft.cern.ch" "grid.cern.ch" "cernvm-prod.cern.ch" "alice.cern.ch")
 
 function get_boinc_info {
     if [ ! -f init_data.xml ] ; then
-	log_error "'init_data.xml' is mising."
+	log_error "'init_data.xml' is missing."
         return 1
     fi
     attribute=$(grep "^<$1>" init_data.xml | cut -d '>' -f2 | cut -d '<' -f1)
     echo ${attribute}
 }
 
-function check_cvmfs {
+function check_cvmfs_legacy {
     log_info "Checking CVMFS."
     cvmfs_config=$(which cvmfs_config 2>/dev/null)
     if [ $? -gt 0 ] ; then
@@ -52,7 +52,7 @@ function check_cvmfs {
     done
 }
 
-function check_runc {
+function check_runc_legacy {
     log_info "Checking runc."
     if grep -q cgroup2 /proc/mounts; then
         runc="/cvmfs/grid.cern.ch/vc/containers/runc.new"
@@ -80,9 +80,7 @@ function check_runc {
 
 function create_filesystem {
     log_info "Creating the filesystem."
-    if [ -e cernvm ] ; then
-        rm -r cernvm
-    fi
+    rm -frd cernvm
     mkdir -p cernvm/rootfs
     root="/cvmfs/cernvm-prod.cern.ch/cvm3"    
     log_info "Using ${root}"
@@ -102,8 +100,8 @@ function create_filesystem {
 
 }
 
-function update_config {
-    log_info "Updating config.json."
+function update_config_legacy {
+#     log_info "Updating config.json."
 
     sed -i "s/\"hostID\": 122/\"hostID\": $(id -u)/" cernvm/config.json
     sed -i "s/\"hostID\": 129/\"hostID\": $(id -g)/" cernvm/config.json
@@ -112,6 +110,15 @@ function update_config {
 	sed -i "s/\"linux\": {/\"linux\": {\n \t\"cgroupsPath\": \"\/boinc\/${slot}\",/" cernvm/config.json
     fi
 }
+
+function update_config {
+#    log_info "Updating config.json."
+
+    sed -e "s/\"hostID\": 122/\"hostID\": $(id -u)/" \
+        -e "s/\"hostID\": 129/\"hostID\": $(id -g)/" \
+        -i cernvm/config.json
+}
+
 function prepare_input { 
     cp init_data.xml cernvm/shared/init_data.xml
     mkdir cernvm/shared/bin
@@ -139,7 +146,7 @@ function prepare_output {
     fi
 }
 
-function pause {
+function pause_legacy {
     result_id=$(get_boinc_info result_name)
     log_info "Pausing container ${result_id}."
     if grep -q cgroup2 /proc/mounts; then
@@ -154,13 +161,25 @@ function pause {
     fi
 }
 
-function resume {
+function pause {
+    result_id=$(get_boinc_info result_name)
+    log_info "Pausing container ${result_id}."
+    sudo -n /usr/bin/systemctl freeze ${result_id}.scope
+}
+
+function resume_legacy {
     result_id=$(get_boinc_info result_name)
     log_info "Resuming container ${result_id}."
     /cvmfs/grid.cern.ch/vc/containers/runc --root state resume ${result_id}
 }
 
-function create_cgroup() {
+function resume {
+    result_id=$(get_boinc_info result_name)
+    log_info "Resuming container ${result_id}."
+    sudo -n /usr/bin/systemctl thaw ${result_id}.scope
+}
+
+function create_cgroup_legacy {
     if [ -d /sys/fs/cgroup/freezer/boinc ]; then
         slot=$(basename $(pwd))
         log_info "Creating cgroup for slot ${slot}"
@@ -183,7 +202,7 @@ function create_cgroup() {
     fi
 }
 
-function run {
+function run_legacy {
     log_info "Running Container 'runc'."
     if grep -q cgroup2 /proc/mounts; then
         runc="/cvmfs/grid.cern.ch/vc/containers/runc.new"
@@ -191,11 +210,11 @@ function run {
 	runc="/cvmfs/grid.cern.ch/vc/containers/runc.old"
     fi
     result_id=$(get_boinc_info result_name)
-    trap pause SIGTSTP
-    trap resume SIGCONT
-    read_runrivet_log $$ &
+    trap pause_legacy SIGTSTP
+    trap resume_legacy SIGCONT
     ${runc} --root state run -b cernvm ${result_id} &
     child=$! 
+    log_info "mcplots runspec: $(grep -Poam1 'runspec=\Kboinc[^"]*' input 2>/dev/null)"
     while true
     do
 	wait ${child}
@@ -207,10 +226,33 @@ function run {
     done
 }
 
-function read_runrivet_log {
-    while [ ! -e cernvm/shared/runRivet.log ] ; do sleep 2; done
-    local logline1="$(head -n 1 cernvm/shared/runRivet.log 2>/dev/null)"
-    log_info "${logline1}"
+function run {
+    result_id=$(get_boinc_info result_name)
+    log_info "Running Container $result_id."
+
+    run_uid="$(id -un 2>/dev/null)"
+    run_gid="boinc"
+    run_BindsTo="$(ps --no-headers -o unit $$ 2>/dev/null)"
+    run_After="${run_BindsTo}"
+    
+    sudo -n /usr/bin/systemd-run --scope -u ${result_id} -p BindsTo=${run_BindsTo} -p After=${run_After} -p CPUQuota=100% --slice-inherit --uid=${run_uid} --gid=${run_gid} --same-dir -q -G ${runc_bin} --root state run -b cernvm ${result_id} &
+
+    child=$!
+
+    trap pause SIGTSTP
+    trap resume SIGCONT
+    log_info "mcplots runspec: $(grep -Poam1 'runspec=\Kboinc[^"]*' input 2>/dev/null)"
+    log_info "----,^^^^,<<<~_____---,^^^,<<~____--,^^,<~__;_"
+
+    while :; do
+        wait ${child}
+        status=$?
+        if [[ $status != 146 ]] && [[ $status != 148 ]]; then 
+            trap - SIGTSTP SIGCONT
+            log_info "Container $result_id finished with status code ${status}."
+            return
+        fi
+    done
 }
 
 
@@ -218,17 +260,271 @@ function fail {
     exit 206
 }
 
+function early_fail {
+    log_info "VM early shutdown initiated due to previous errors."
+    log_info "Cleanup will take a few minutes..."
+
+    # a modern multi CPU computer often starts many tasks within a very short period
+    # if they all fail due to missing requirements delay shutdown
+    sleep $(shuf -n 1 -i 720-900)
+    
+    exit 206
+}
+
+
+function check_cvmfs_configuration_offline {
+    export required_repos=("alice.cern.ch" "cernvm-prod.cern.ch" "grid.cern.ch" "sft.cern.ch")
+    ret_ccc_off=0
+    
+    cvmfs_config_file="/etc/cvmfs/default.local"
+    if [[ ! -e "$cvmfs_config_file" ]]; then
+        log_info "Can't find '$cvmfs_config_file'."
+        (( ret_ccc_off < 2 )) && ret_ccc_off=2
+    else
+        file_content="$(tac $cvmfs_config_file)"
+        cvmfs_config_patterns=("CVMFS_USE_CDN=yes"\
+                               "CVMFS_HTTP_PROXY=\"auto;DIRECT\""\
+                              )
+        for pattern in "${cvmfs_config_patterns[@]}"; do
+            if ! grep -qm1 "^\s*${pattern}" <<<"$file_content" 2>/dev/null; then
+                log_info "Missing '$pattern' in '$cvmfs_config_file'."
+                (( ret_ccc_off < 1 )) && ret_ccc_off=1
+            fi
+        done
+        
+        my_repositories="$(grep -Pom1 "^\s*CVMFS_REPOSITORIES=\"\K[ a-zA-Z0-9,._-]+[^\"]" <<<"$file_content" 2>/dev/null)"
+        if [[ -z "$my_repositories" ]]; then
+            log_info "No repositories configured in '$cvmfs_config_file'."
+            (( ret_ccc_off < 2 )) && ret_ccc_off=2
+        else
+            IFS=", " read -a conf_repo_list <<<"$my_repositories"
+            for req_repo in "${required_repos[@]}"; do
+                for conf_repo in "${conf_repo_list[@]}"; do
+                    if [[ "$req_repo" == "$conf_repo" ]] || [[ "${req_repo%.cern.ch}" == "$conf_repo" ]]; then
+                        break 2
+                    fi
+                done
+                log_info "Missing required Repository '$req_repo' in '$cvmfs_config_file'."
+                (( ret_ccc_off < 2 )) && ret_ccc_off=2
+            done
+        fi
+    fi
+
+    cvmfs_config_file="/etc/cvmfs/domain.d/cern.ch.local"
+    if [[ ! -e "$cvmfs_config_file" ]]; then
+        log_info "Can't find '$cvmfs_config_file'."
+        (( ret_ccc_off < 1 )) && ret_ccc_off=1
+    else
+        file_content="$(tac $cvmfs_config_file)"
+        cvmfs_config_patterns=("CVMFS_CONFIG_REPO_REQUIRED=yes")
+        for pattern in "${cvmfs_config_patterns[@]}"; do
+            if ! grep -qm1 "^\s*${pattern}" <<<"$file_content" 2>/dev/null; then
+                log_info "Missing '$pattern' in '$cvmfs_config_file'."
+                (( ret_ccc_off < 1 )) && ret_ccc_off=1
+            fi
+        done
+    fi
+    
+    cvmfs_config_file="/etc/cvmfs/config.d/cvmfs-config.cern.ch.local"
+    if [[ ! -e "$cvmfs_config_file" ]]; then
+        log_info "Can't find '$cvmfs_config_file'."
+        (( ret_ccc_off < 1 )) && ret_ccc_off=1
+    else
+        file_content="$(tac $cvmfs_config_file)"
+        cvmfs_config_patterns=("CVMFS_CONFIG_REPO_REQUIRED=no")
+        for pattern in "${cvmfs_config_patterns[@]}"; do
+            if ! grep -qm1 "^\s*${pattern}" <<<"$file_content" 2>/dev/null; then
+                log_info "Missing '$pattern' in '$cvmfs_config_file'."
+                (( ret_ccc_off < 1 )) && ret_ccc_off=1
+            fi
+        done
+    fi
+    
+    return $ret_ccc_off
+}
+
+
+function probe_cvmfs_repos {
+    # this function needs to be revised
+    cvmfs_config probe "$1" >/dev/null 2>&1
+    result="$?"
+    echo "${result}" >"${my_tmp_dir}/result_probe_$1"
+
+    # output from cvmfs_config probe can't be used directly as it prints results delayed
+    if [[ "${result}" == "0" ]]; then
+        : #echo "[INFO] Probing /cvmfs/$1... OK"
+    else
+        log_info "[ERROR] Probing /cvmfs/$1... Failed!"
+    fi
+}
+# must be exported to be available for child shells
+export -f probe_cvmfs_repos
+
+    
+function check_cvmfs_configuration_online {
+    ret_ccc_onl=0
+    
+    my_umask="$(umask)"
+    umask 077
+    export my_tmp_dir="$(mktemp -d)"
+    umask "${my_umask}"
+    
+    #bg_pids_probe_arr=()
+    for cv_repo in "${required_repos[@]}"; do
+        probe_cvmfs_repos "${cv_repo}"
+        #bg_pids_probe_arr+=($!)
+    done
+        
+    #for bg_pid in ${bg_pids_probe_arr[*]}; do
+    #    wait $bg_pid
+    #done
+        
+    if grep -v '^0$' <(cat "${my_tmp_dir}/result_probe_"* 2>&1) >/dev/null 2>&1; then
+        (( ret_ccc_onl < 2 )) && ret_ccc_onl=2
+    fi
+
+    rm -frd "${my_tmp_dir}" &
+    
+    if (( ret_ccc_onl < 2 )); then
+        # prints a hint to the logfile whether openhtc.io and/or a local proxy is used.
+        cvmfs_excerpt=($(cut -d ' ' -f 1,17,18 < <(tail -n1 < <(cvmfs_config stat sft.cern.ch))))
+        log_info "Excerpt from \"cvmfs_config stat\": VERSION HOST PROXY"
+        log_info "$(echo "${cvmfs_excerpt[0]} ${cvmfs_excerpt[1]%"/cvmfs/sft.cern.ch"} ${cvmfs_excerpt[2]}")"
+    fi
+    
+    return $ret_ccc_onl
+}
+
+
+function check_local_requirements {
+    log_info "Checking local requirements."
+    
+    # minor issues return "1" but legacy mode may be possible
+    # show stoppers return "2"
+    ret_clr=0
+    
+    # check if init is systemd
+    # if not, this system may be very old, run under WSL2 or otherwise exotic
+    if ! grep -iqam1 'systemd' /sbin/init 2>/dev/null; then
+        log_info "Init process is not 'systemd'."
+        (( ret_clr < 1 )) && ret_clr=1
+    fi
+    
+    if ! command -v systemd-run >/dev/null 2>&1; then
+        log_info "Can't find 'systemd-run'."
+        (( ret_clr < 1 )) && ret_clr=1
+    fi
+    
+    # check if cgroups v2 are available
+    if ! ls /sys/fs/cgroup/cgroup.controllers >/dev/null 2>&1; then
+        log_info "Can't find 'cgroups v2'."
+        (( ret_clr < 1 )) && ret_clr=1
+    fi
+    
+    # if the user is not a member of the boinc group sudo commands will fail.
+    my_user_name="$(id -un)"
+    group_name="boinc"
+    if ! grep -q "\b${group_name}\b" <(id -Gn $my_user_name); then
+        log_info "User '$my_user_name' is missing in group '$group_name'."
+        log_info "To add '$my_user_name' to '$group_name' run 'sudo usermod -aG $group_name $my_user_name'."
+        (( ret_clr < 2 )) && ret_clr=2
+    fi
+        
+    sudoers_file="/etc/sudoers.d/50-lhcathome_boinc"
+    if ! grep -qm1 "$sudoers_file" <(sudo -l) 2>/dev/null; then
+        log_info "Can't find '$sudoers_file'."
+        (( ret_clr < 1 )) && ret_clr=1
+    else
+        if ! sudo -n /usr/bin/cat $sudoers_file >/dev/null 2>&1; then
+            log_info "Found '$sudoers_file'"
+            log_info "but sudo may not be able to interpret regular expressions."
+            log_info "Upgrade sudo to version 1.9.10 or higher."
+            (( ret_clr < 1 )) && ret_clr=1
+        fi
+    fi
+    
+    if ! command -v cvmfs_config >/dev/null 2>&1; then
+        log_info "Can't find 'cvmfs_config'."
+        log_info "Running a local CVMFS client is a MUST but it can't be found."
+        (( ret_clr < 2 )) && ret_clr=2
+    else
+        check_cvmfs_configuration_offline
+        ret=$?
+        (( ret > ret_clr )) && ret_clr=$ret
+        
+        if (( ret < 2 )); then
+            check_cvmfs_configuration_online
+            ret=$?
+            (( ret > ret_clr )) && ret_clr=$ret
+        fi
+    fi
+    
+    if [[ ! -e /proc/sys/user/max_user_namespaces ]] ; then
+        log_error "Missing 'max_user_namespaces'."
+            (( ret > ret_clr )) && ret_clr=2
+    else
+        if (( $(cat /proc/sys/user/max_user_namespaces) == 0 )); then
+            log_error "'/proc/sys/user/max_user_namespaces' is set to 0."
+            (( ret > ret_clr )) && ret_clr=2
+        fi
+    fi
+    
+    runc_bin="$(command -v runc)"
+    if  [[ -n "$runc_bin" ]]; then
+        runc_version="$(head -n1 <($runc_bin -v))"
+        log_info "Found a local $runc_version."
+    else
+        runc_bin="/cvmfs/grid.cern.ch/vc/containers/runc.new"
+        runc_version="$(head -n1 <($runc_bin -v 2>/dev/null))"
+        if [[ -n "$runc_version" ]]; then
+            log_info "Found '$runc_version' at '$runc_bin'."
+        else
+            # can we retire this version?
+            runc_bin="/cvmfs/grid.cern.ch/vc/containers/runc.old"
+            runc_version="$(head -n1 <($runc_bin -v 2>/dev/null))"
+            if [[ -n "$runc_version" ]]; then
+                log_info "Found '$runc_version' at '$runc_bin'."
+            else
+                log_info "Can't find 'runc'."
+                (( ret_clr < 2 )) && ret_clr=2
+            fi
+        fi
+    fi
+
+
+    return $return_code
+}
+
+
 app=$(get_boinc_info app_name)
  if [ $? -gt 0 ] ; then
      fail
  fi
 log_info "Detected ${app} App"
-check_cvmfs ${app} || fail
-check_runc || fail
-create_filesystem
-create_cgroup
-update_config
-prepare_input
-run
-prepare_output || fail
-rm -rf cernvm # Clean up
+check_local_requirements
+ret_code_main=$?
+if (( ret_code_main > 1 )); then
+    log_error "Major requirements are missing. Can't run this task."
+    early_fail
+fi
+
+if (( ret_code_main > 0 )); then
+    log_info "Minor requirements are missing. Will try to run this task in legacy mode."
+
+    check_cvmfs_legacy ${app} || early_fail
+    check_runc_legacy || early_fail
+    create_filesystem
+    create_cgroup_legacy
+    update_config_legacy
+    prepare_input
+    run_legacy
+    prepare_output || fail
+else
+    create_filesystem
+    update_config
+    prepare_input
+    run
+    prepare_output || fail
+fi
+
+rm -rfd cernvm # Clean up
