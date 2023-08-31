@@ -41,7 +41,7 @@ function check_cvmfs_legacy {
     fi
 
     repos=$app[@]
-    for repo in ${!repos}; do 
+    for repo in ${!repos}; do
 	for command in probe stat ; do
             cvmfs_config ${command} ${repo}
 	    if [ $? -gt 0 ] ; then
@@ -82,7 +82,7 @@ function create_filesystem {
     log_info "Creating the filesystem."
     rm -frd cernvm
     mkdir -p cernvm/rootfs
-    root="/cvmfs/cernvm-prod.cern.ch/cvm3"    
+    root="/cvmfs/cernvm-prod.cern.ch/cvm3"
     log_info "Using ${root}"
     paths=('/srv' '/tmp' '/etc' '/usr' '/usr/local' '/var' '/var/cache' '/var/cvs' '/var/db' '/var/empty'
            '/var/lib' '/var/local' '/var/lock' '/var/log' '/var/run' '/var/tmp' '/root' '/home' '/var/spool')
@@ -119,7 +119,7 @@ function update_config {
         -i cernvm/config.json
 }
 
-function prepare_input { 
+function prepare_input {
     cp init_data.xml cernvm/shared/init_data.xml
     mkdir cernvm/shared/bin
     cp /cvmfs/grid.cern.ch/vc/containers/cernvm/copilot-config cernvm/shared/bin/copilot-config
@@ -163,7 +163,7 @@ function pause_legacy {
 
 function pause {
     result_id=$(get_boinc_info result_name)
-    log_info "Pausing container ${result_id}."
+    log_info "Pausing systemd unit ${result_id}.scope"
     sudo -n /usr/bin/systemctl freeze ${result_id}.scope
 }
 
@@ -175,7 +175,7 @@ function resume_legacy {
 
 function resume {
     result_id=$(get_boinc_info result_name)
-    log_info "Resuming container ${result_id}."
+    log_info "Resuming systemd unit ${result_id}.scope"
     sudo -n /usr/bin/systemctl thaw ${result_id}.scope
 }
 
@@ -213,13 +213,13 @@ function run_legacy {
     trap pause_legacy SIGTSTP
     trap resume_legacy SIGCONT
     ${runc} --root state run -b cernvm ${result_id} &
-    child=$! 
+    child=$!
     log_info "mcplots runspec: $(grep -Poam1 'runspec=\Kboinc[^"]*' input 2>/dev/null)"
     while true
     do
 	wait ${child}
 	status=$?
-	if [ ! ${status} -eq 146 ] && [ ! ${status} -eq 148 ]; then 
+	if [ ! ${status} -eq 146 ] && [ ! ${status} -eq 148 ]; then
 	    log_info "Container 'runc' finished with status code ${status}."
 	    return
 	fi
@@ -234,20 +234,20 @@ function run {
     run_gid="boinc"
     run_BindsTo="$(ps --no-headers -o unit $$ 2>/dev/null)"
     run_After="${run_BindsTo}"
-    
-    sudo -n /usr/bin/systemd-run --scope -u ${result_id} -p BindsTo=${run_BindsTo} -p After=${run_After} -p CPUQuota=100% --slice-inherit --uid=${run_uid} --gid=${run_gid} --same-dir -q -G ${runc_bin} --root state run -b cernvm ${result_id} &
+
+    trap resume SIGCONT
+    trap pause SIGTSTP
+    sudo -n /usr/bin/systemd-run --scope -u ${result_id} -p BindsTo=${run_BindsTo} -p After=${run_After} --slice-inherit --uid=${run_uid} --gid=${run_gid} --same-dir -q -G ${runc_bin} --root state run -b cernvm ${result_id} &
 
     child=$!
 
-    trap pause SIGTSTP
-    trap resume SIGCONT
     log_info "mcplots runspec: $(grep -Poam1 'runspec=\Kboinc[^"]*' input 2>/dev/null)"
     log_info "----,^^^^,<<<~_____---,^^^,<<~____--,^^,<~__;_"
 
     while :; do
         wait ${child}
         status=$?
-        if [[ $status != 146 ]] && [[ $status != 148 ]]; then 
+        if [[ $status != 146 ]] && [[ $status != 148 ]]; then
             trap - SIGTSTP SIGCONT
             log_info "Container $result_id finished with status code ${status}."
             return
@@ -267,7 +267,7 @@ function early_fail {
     # a modern multi CPU computer often starts many tasks within a very short period
     # if they all fail due to missing requirements delay shutdown
     sleep $(shuf -n 1 -i 720-900)
-    
+
     exit 206
 }
 
@@ -275,7 +275,7 @@ function early_fail {
 function check_cvmfs_configuration_offline {
     export required_repos=("alice.cern.ch" "cernvm-prod.cern.ch" "grid.cern.ch" "sft.cern.ch")
     ret_ccc_off=0
-    
+
     cvmfs_config_file="/etc/cvmfs/default.local"
     if [[ ! -e "$cvmfs_config_file" ]]; then
         log_info "Can't find '$cvmfs_config_file'."
@@ -291,7 +291,7 @@ function check_cvmfs_configuration_offline {
                 (( ret_ccc_off < 1 )) && ret_ccc_off=1
             fi
         done
-        
+
         my_repositories="$(grep -Pom1 "^\s*CVMFS_REPOSITORIES=\"\K[ a-zA-Z0-9,._-]+[^\"]" <<<"$file_content" 2>/dev/null)"
         if [[ -z "$my_repositories" ]]; then
             log_info "No repositories configured in '$cvmfs_config_file'."
@@ -324,7 +324,7 @@ function check_cvmfs_configuration_offline {
             fi
         done
     fi
-    
+
     cvmfs_config_file="/etc/cvmfs/config.d/cvmfs-config.cern.ch.local"
     if [[ ! -e "$cvmfs_config_file" ]]; then
         log_info "Can't find '$cvmfs_config_file'."
@@ -339,7 +339,7 @@ function check_cvmfs_configuration_offline {
             fi
         done
     fi
-    
+
     return $ret_ccc_off
 }
 
@@ -360,67 +360,67 @@ function probe_cvmfs_repos {
 # must be exported to be available for child shells
 export -f probe_cvmfs_repos
 
-    
+
 function check_cvmfs_configuration_online {
     ret_ccc_onl=0
-    
+
     my_umask="$(umask)"
     umask 077
     export my_tmp_dir="$(mktemp -d)"
     umask "${my_umask}"
-    
+
     #bg_pids_probe_arr=()
     for cv_repo in "${required_repos[@]}"; do
         probe_cvmfs_repos "${cv_repo}"
         #bg_pids_probe_arr+=($!)
     done
-        
+
     #for bg_pid in ${bg_pids_probe_arr[*]}; do
     #    wait $bg_pid
     #done
-        
+
     if grep -v '^0$' <(cat "${my_tmp_dir}/result_probe_"* 2>&1) >/dev/null 2>&1; then
         (( ret_ccc_onl < 2 )) && ret_ccc_onl=2
     fi
 
     rm -frd "${my_tmp_dir}" &
-    
+
     if (( ret_ccc_onl < 2 )); then
         # prints a hint to the logfile whether openhtc.io and/or a local proxy is used.
         cvmfs_excerpt=($(cut -d ' ' -f 1,17,18 < <(tail -n1 < <(cvmfs_config stat sft.cern.ch))))
         log_info "Excerpt from \"cvmfs_config stat\": VERSION HOST PROXY"
         log_info "$(echo "${cvmfs_excerpt[0]} ${cvmfs_excerpt[1]%"/cvmfs/sft.cern.ch"} ${cvmfs_excerpt[2]}")"
     fi
-    
+
     return $ret_ccc_onl
 }
 
 
 function check_local_requirements {
     log_info "Checking local requirements."
-    
+
     # minor issues return "1" but legacy mode may be possible
     # show stoppers return "2"
     ret_clr=0
-    
+
     # check if init is systemd
     # if not, this system may be very old, run under WSL2 or otherwise exotic
     if ! grep -iqam1 'systemd' /sbin/init 2>/dev/null; then
         log_info "Init process is not 'systemd'."
         (( ret_clr < 1 )) && ret_clr=1
     fi
-    
+
     if ! command -v systemd-run >/dev/null 2>&1; then
         log_info "Can't find 'systemd-run'."
         (( ret_clr < 1 )) && ret_clr=1
     fi
-    
+
     # check if cgroups v2 are available
     if ! ls /sys/fs/cgroup/cgroup.controllers >/dev/null 2>&1; then
         log_info "Can't find 'cgroups v2'."
         (( ret_clr < 1 )) && ret_clr=1
     fi
-    
+
     # if the user is not a member of the boinc group sudo commands will fail.
     my_user_name="$(id -un)"
     group_name="boinc"
@@ -429,7 +429,7 @@ function check_local_requirements {
         log_info "To add '$my_user_name' to '$group_name' run 'sudo usermod -aG $group_name $my_user_name'."
         (( ret_clr < 2 )) && ret_clr=2
     fi
-        
+
     sudoers_file="/etc/sudoers.d/50-lhcathome_boinc"
     if ! grep -qm1 "$sudoers_file" <(sudo -nl) 2>/dev/null; then
         log_info "Can't find or read '$sudoers_file'."
@@ -442,7 +442,7 @@ function check_local_requirements {
             (( ret_clr < 1 )) && ret_clr=1
         fi
     fi
-    
+
     if ! command -v cvmfs_config >/dev/null 2>&1; then
         log_info "Can't find 'cvmfs_config'."
         log_info "Running a local CVMFS client is a MUST but it can't be found."
@@ -451,14 +451,14 @@ function check_local_requirements {
         check_cvmfs_configuration_offline
         ret=$?
         (( ret > ret_clr )) && ret_clr=$ret
-        
+
         if (( ret < 2 )); then
             check_cvmfs_configuration_online
             ret=$?
             (( ret > ret_clr )) && ret_clr=$ret
         fi
     fi
-    
+
     if [[ ! -e /proc/sys/user/max_user_namespaces ]] ; then
         log_error "Missing 'max_user_namespaces'."
             (( ret > ret_clr )) && ret_clr=2
@@ -468,7 +468,7 @@ function check_local_requirements {
             (( ret > ret_clr )) && ret_clr=2
         fi
     fi
-    
+
     runc_bin="$(command -v runc)"
     if  [[ -n "$runc_bin" ]]; then
         runc_version="$(head -n1 <($runc_bin -v))"
