@@ -79,7 +79,7 @@ function check_runc_legacy {
 }
 
 function create_filesystem {
-    log_info "Creating the filesystem."
+    log_info "Creating container filesystem."
     rm -frd cernvm
     mkdir -p cernvm/rootfs
     root="/cvmfs/cernvm-prod.cern.ch/cvm3"
@@ -228,7 +228,9 @@ function run_legacy {
 
 function run {
     result_id=$(get_boinc_info result_name)
-    log_info "Running Container $result_id."
+    log_info "Running container $result_id."
+    log_info "mcplots runspec: $(grep -Poam1 'runspec=\Kboinc[^"]*' input 2>/dev/null)"
+    log_info "----,^^^^,<<<~_____---,^^^,<<~____--,^^,<~__;_"
 
     run_uid="$(id -un 2>/dev/null)"
     run_gid="boinc"
@@ -240,9 +242,6 @@ function run {
     sudo -n /usr/bin/systemd-run --scope -u ${result_id} -p BindsTo=${run_BindsTo} -p After=${run_After} --slice-inherit --uid=${run_uid} --gid=${run_gid} --same-dir -q -G ${runc_bin} --root state run -b cernvm ${result_id} &
 
     child=$!
-
-    log_info "mcplots runspec: $(grep -Poam1 'runspec=\Kboinc[^"]*' input 2>/dev/null)"
-    log_info "----,^^^^,<<<~_____---,^^^,<<~____--,^^,<~__;_"
 
     while :; do
         wait ${child}
@@ -261,7 +260,7 @@ function fail {
 }
 
 function early_fail {
-    log_info "VM early shutdown initiated due to previous errors."
+    log_info "Early shutdown initiated due to previous errors."
     log_info "Cleanup will take a few minutes..."
 
     # a modern multi CPU computer often starts many tasks within a very short period
@@ -397,6 +396,17 @@ function check_cvmfs_configuration_online {
 
 
 function check_local_requirements {
+    log_info "This application must have permanent access to"
+    log_info "online repositories via a local CVMFS service."
+    log_info "It supports suspend/resume if a couple of"
+    log_info "requirements are fulfilled."
+    log_info "Most important:"
+    log_info "- init process is systemd"
+    log_info "- cgroups v2 is enabled and 'freezer' is available"
+    log_info "- the user running this application is a member of the 'boinc' group"
+    log_info "- sudo is at least version 1.9.10"
+    log_info "- sudoer file provided by LHC@home is installed"
+    
     log_info "Checking local requirements."
 
     # minor issues return "1" but legacy mode may be possible
@@ -430,6 +440,8 @@ function check_local_requirements {
         (( ret_clr < 2 )) && ret_clr=2
     fi
 
+    log_info "Found $(head -n1 <(sudo -V))."
+
     sudoers_file="/etc/sudoers.d/50-lhcathome_boinc"
     if ! grep -qm1 "$sudoers_file" <(sudo -nl) 2>/dev/null; then
         log_info "Can't find or read '$sudoers_file'."
@@ -455,18 +467,18 @@ function check_local_requirements {
         if (( ret < 2 )); then
             check_cvmfs_configuration_online
             ret=$?
-            (( ret > ret_clr )) && ret_clr=$ret
+            (( ret > 1 )) && ret_clr=$ret
         fi
     fi
 
-    if [[ ! -e /proc/sys/user/max_user_namespaces ]] ; then
-        log_error "Missing 'max_user_namespaces'."
-            (( ret > ret_clr )) && ret_clr=2
-    else
-        if (( $(cat /proc/sys/user/max_user_namespaces) == 0 )); then
-            log_error "'/proc/sys/user/max_user_namespaces' is set to 0."
-            (( ret > ret_clr )) && ret_clr=2
-        fi
+    max_uns_path="/proc/sys/user/max_user_namespaces"
+    if [[ ! -e "$max_uns_path" ]] || (( $(cat "$max_uns_path" 2>/dev/null) < 15000 )); then
+        log_info "Missing 'max_user_namespaces'"
+        log_info "or it's value is lower than 15000."
+        log_info "Run the following commands as root:"
+        log_info "echo \"user.max_user_namespaces = 15000\" > /etc/sysctl.d/90-max_user_namespaces.conf"
+        log_info "sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf"
+        (( ret_clr < 2 )) && ret_clr=2
     fi
 
     runc_bin="$(command -v runc)"
@@ -492,7 +504,7 @@ function check_local_requirements {
     fi
 
 
-    return $return_code
+    return $ret_clr
 }
 
 
