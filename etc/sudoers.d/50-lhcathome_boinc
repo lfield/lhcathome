@@ -15,6 +15,6 @@
 
 Cmnd_Alias LHCATHOMEBOINC_01 = /usr/bin/cat ^/etc/sudoers.d/50-lhcathome_boinc$
 Cmnd_Alias LHCATHOMEBOINC_02 = /usr/bin/systemctl ^(freeze|thaw) Theory_[-a-zA-Z0-9_]+\.scope$
-Cmnd_Alias LHCATHOMEBOINC_03 = /usr/bin/systemd-run ^--scope -u [a-zA-Z0-9_-]+ -p BindsTo=[a-zA-Z0-9_\.-]+ -p After=[a-zA-Z0-9_\.-]+ -p CPUQuota=[0-9]+% --slice-inherit --uid=[a-zA-Z0-9_-]+ --gid=boinc --same-dir -q -G /[a-zA-Z0-9_\./-]+/runc --root state run -b cernvm [a-zA-Z0-9_-]+$
+Cmnd_Alias LHCATHOMEBOINC_03 = /usr/bin/systemd-run ^--scope -u [a-zA-Z0-9_-]+ -p BindsTo=[a-zA-Z0-9_\.-]+ -p After=[a-zA-Z0-9_\.-]+ --slice-inherit --uid=[a-zA-Z0-9_-]+ --gid=boinc --same-dir -q -G /[a-zA-Z0-9_\./-]+/runc --root state run -b cernvm [a-zA-Z0-9_-]+$
 
 %boinc     ALL = (ALL) NOPASSWD: LHCATHOMEBOINC_01, LHCATHOMEBOINC_02, LHCATHOMEBOINC_03
