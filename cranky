@@ -228,7 +228,9 @@ function run_legacy {
 
 function run {
     result_id=$(get_boinc_info result_name)
-    log_info "Running container $result_id."
+    log_info "Starting runc container."
+    log_info "To get some details on systemd level run"
+    log_info "systemctl status ${result_id}.scope"
     log_info "mcplots runspec: $(grep -Poam1 'runspec=\Kboinc[^"]*' input 2>/dev/null)"
     log_info "----,^^^^,<<<~_____---,^^^,<<~____--,^^,<~__;_"
 
