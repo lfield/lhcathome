@@ -1,0 +1,103 @@
+#!/bin/bash
+
+
+function fail {
+    if [[ ! $? == 0 ]]; then
+        echo "Error running $0"
+        exit 1
+    fi
+}
+
+
+function check_whoami {
+    eff_user="$(whoami)"
+    eff_user_id=$(id -u $eff_user)
+    
+    if [[ $eff_user_id != 0 ]]; then
+        echo "You are '${eff_user}, userid '$eff_user_id'."
+        echo "To run this command you must be userid '0'."
+        echo "Try again with 'sudo $0'."
+        return 1
+    fi
+}
+
+
+function prepare_sudoers {
+    sudoers_includedir="/etc/sudoers.d"
+    sudoers_conf="/etc/sudoers"
+    
+    # according to 'man sudoers':
+    # "... skipping file names that end in ‘~’ or contain a ‘.’ character to avoid causing
+    # problems with package manager or editor temporary/backup files."
+    # Hence, avoid those characters here but it is save to rename backup files '*.backup-*'.
+    sudoers_addons="50-lhcathome_boinc_theory_native"
+    
+    if [[ ! -e "$sudoers_conf" ]]; then
+        echo "File '$sudoers_conf' not found."
+        return 1
+    fi
+    
+    if ! grep -Eqm1 "^\s*[@#]{1}(include|includedir)\s*${sudoers_includedir}" <(tac $sudoers_conf); then
+        echo "includedir $sudoers_includedir is not enabled in $sudoers_conf."
+        sudoers_confirm="no"
+        read -p "Type 'yes' to enable it ... " sudoers_confirm
+        if [[ "${sudoers_confirm,,}" != "yes" ]]; then
+            echo "Missing confirmation."
+            return 1
+        fi
+        echo "@includedir ${sudoers_includedir}" >>$sudoers_conf
+    fi
+    
+    if [[ ! -d "$sudoers_includedir" ]]; then
+        echo "Missing directory $sudoers_includedir."
+        sudoers_confirm="no"
+        read -p "Type 'yes' to create it ... " sudoers_confirm
+        if [[ "${sudoers_confirm,,}" != "yes" ]]; then
+            echo "Missing confirmation."
+            return 1
+        fi
+        install -o root -g root -m 750 -d "$sudoers_includedir" || return 1
+    fi
+        
+    
+    if [[ -e "$sudoers_includedir/$sudoers_addons" ]]; then
+        while :; do
+            sudoers_backup="$(mktemp -uqp $sudoers_includedir -t $sudoers_addons.backup-XXXXXXXX)"
+            [[ ! -e "$sudoers_backup" ]] && break 2
+        done
+        echo "$sudoers_includedir/$sudoers_addons already exists."
+        echo "Will save it as $sudoers_backup."
+        cp $sudoers_includedir/$sudoers_addons $sudoers_backup || return 1
+    fi
+    
+# Do not indent the heredoc EOF!
+cat << EOF_SUDOERS_FILE >"$sudoers_includedir/$sudoers_addons"
+# save this file as '$sudoers_includedir/$sudoers_addons'
+# ownership must be 'root:root' and access rights must be '-r--r-----'
+# '@includedir $sudoers_includedir' must be enabled in $sudoers_conf
+
+# regular expressions are enclosed between '^' and '$'
+# this is supported since sudo version 1.9.10
+# for more information read 'man sudoers'
+
+# the regex patterns given here must match the command arguments in the calling script
+# missing/additional arguments or an argument order not in sync causes a command to be rejected
+
+# the commands are permitted for the local group 'boinc'
+# ensure the calling user is a member of that group
+
+
+Cmnd_Alias LHCATHOMEBOINC_01 = /usr/bin/cat ^$sudoers_includedir/$sudoers_addons$
+Cmnd_Alias LHCATHOMEBOINC_02 = /usr/bin/systemctl ^(freeze|thaw) Theory_[-a-zA-Z0-9_]+\.scope$
+Cmnd_Alias LHCATHOMEBOINC_03 = /usr/bin/systemd-run ^--scope -u [a-zA-Z0-9_-]+ -p BindsTo=[a-zA-Z0-9_\.@-]+ -p After=[a-zA-Z0-9_\.@-]+ --slice-inherit --uid=[a-zA-Z0-9_-]+ --gid=boinc --same-dir -q -G /[a-zA-Z0-9_\./-]+/runc --root state run -b cernvm [a-zA-Z0-9_-]+$
+
+%boinc     ALL = (ALL) NOPASSWD: LHCATHOMEBOINC_01, LHCATHOMEBOINC_02, LHCATHOMEBOINC_03
+EOF_SUDOERS_FILE
+
+    chmod 440 "$sudoers_includedir/$sudoers_addons"
+}
+
+
+
+check_whoami || fail
+prepare_sudoers || fail
