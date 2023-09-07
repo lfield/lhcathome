@@ -279,6 +279,7 @@ function check_cvmfs_configuration_offline {
 
     cvmfs_config_file="/etc/cvmfs/default.local"
     if [[ ! -e "$cvmfs_config_file" ]]; then
+        # must exist since this is the file that contains the repo list
         log_info "Can't find '$cvmfs_config_file'."
         (( ret_ccc_off < 2 )) && ret_ccc_off=2
     else
@@ -288,8 +289,10 @@ function check_cvmfs_configuration_offline {
                               )
         for pattern in "${cvmfs_config_patterns[@]}"; do
             if ! grep -qm1 "^\s*${pattern}" <<<"$file_content" 2>/dev/null; then
+                # minor errors
+                # just print a hint what should be set on a normal volunteer's computer
                 log_info "Missing '$pattern' in '$cvmfs_config_file'."
-                (( ret_ccc_off < 1 )) && ret_ccc_off=1
+                #(( ret_ccc_off < 1 )) && ret_ccc_off=1
             fi
         done
 
@@ -313,30 +316,38 @@ function check_cvmfs_configuration_offline {
 
     cvmfs_config_file="/etc/cvmfs/domain.d/cern.ch.local"
     if [[ ! -e "$cvmfs_config_file" ]]; then
+        # minor error
+        # just print a hint what should be set on a normal volunteer's computer
         log_info "Can't find '$cvmfs_config_file'."
-        (( ret_ccc_off < 1 )) && ret_ccc_off=1
+        #(( ret_ccc_off < 1 )) && ret_ccc_off=1
     else
         file_content="$(tac $cvmfs_config_file)"
         cvmfs_config_patterns=("CVMFS_CONFIG_REPO_REQUIRED=yes")
         for pattern in "${cvmfs_config_patterns[@]}"; do
             if ! grep -qm1 "^\s*${pattern}" <<<"$file_content" 2>/dev/null; then
+                # minor error
+                # just print a hint what should be set on a normal volunteer's computer
                 log_info "Missing '$pattern' in '$cvmfs_config_file'."
-                (( ret_ccc_off < 1 )) && ret_ccc_off=1
+                #(( ret_ccc_off < 1 )) && ret_ccc_off=1
             fi
         done
     fi
 
     cvmfs_config_file="/etc/cvmfs/config.d/cvmfs-config.cern.ch.local"
     if [[ ! -e "$cvmfs_config_file" ]]; then
+        # minor error
+        # just print a hint what should be set on a normal volunteer's computer
         log_info "Can't find '$cvmfs_config_file'."
-        (( ret_ccc_off < 1 )) && ret_ccc_off=1
+        #(( ret_ccc_off < 1 )) && ret_ccc_off=1
     else
         file_content="$(tac $cvmfs_config_file)"
         cvmfs_config_patterns=("CVMFS_CONFIG_REPO_REQUIRED=no")
         for pattern in "${cvmfs_config_patterns[@]}"; do
             if ! grep -qm1 "^\s*${pattern}" <<<"$file_content" 2>/dev/null; then
+                # minor error
+                # just print a hint what should be set on a normal volunteer's computer
                 log_info "Missing '$pattern' in '$cvmfs_config_file'."
-                (( ret_ccc_off < 1 )) && ret_ccc_off=1
+                #(( ret_ccc_off < 1 )) && ret_ccc_off=1
             fi
         done
     fi
@@ -444,7 +455,7 @@ function check_local_requirements {
 
     log_info "Found $(head -n1 <(sudo -V))."
 
-    sudoers_file="/etc/sudoers.d/50-lhcathome_boinc"
+    sudoers_file="/etc/sudoers.d/50-lhcathome_boinc_theory_native"
     if ! grep -qm1 "$sudoers_file" <(sudo -nl) 2>/dev/null; then
         log_info "Can't find or read '$sudoers_file'."
         (( ret_clr < 1 )) && ret_clr=1
@@ -458,8 +469,9 @@ function check_local_requirements {
     fi
 
     if ! command -v cvmfs_config >/dev/null 2>&1; then
-        log_info "Can't find 'cvmfs_config'."
-        log_info "Running a local CVMFS client is a MUST but it can't be found."
+        log_error "Can't find 'cvmfs_config'."
+        log_error "This usually means a local CVMFS client is not installed"
+        log_error "although it is a MUST to get data from online repositories."
         (( ret_clr < 2 )) && ret_clr=2
     else
         check_cvmfs_configuration_offline
@@ -469,10 +481,14 @@ function check_local_requirements {
         if (( ret < 2 )); then
             check_cvmfs_configuration_online
             ret=$?
-            (( ret > 1 )) && ret_clr=$ret
+            (( ret > ret_clr )) && ret_clr=$ret
         fi
     fi
 
+    # recommendation from the old Singularity manual
+    # strictly required on older CentOS systems since it
+    # is enabled by default on most other Linux distros
+    # may only be reported instead of marked as error
     max_uns_path="/proc/sys/user/max_user_namespaces"
     if [[ ! -e "$max_uns_path" ]] || (( $(cat "$max_uns_path" 2>/dev/null) < 15000 )); then
         log_info "Missing 'max_user_namespaces'"
@@ -480,7 +496,7 @@ function check_local_requirements {
         log_info "Run the following commands as root:"
         log_info "echo \"user.max_user_namespaces = 15000\" > /etc/sysctl.d/90-max_user_namespaces.conf"
         log_info "sysctl -p /etc/sysctl.d/90-max_user_namespaces.conf"
-        (( ret_clr < 2 )) && ret_clr=2
+        #(( ret_clr < 2 )) && ret_clr=2
     fi
 
     runc_bin="$(command -v runc)"
