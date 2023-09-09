@@ -296,7 +296,7 @@ function check_cvmfs_configuration_offline {
             fi
         done
 
-        my_repositories="$(grep -Pom1 "^\s*CVMFS_REPOSITORIES=\"\K[ a-zA-Z0-9,._-]+[^\"]" <<<"$file_content" 2>/dev/null)"
+        my_repositories="$(grep -Pom1 "^\s*CVMFS_REPOSITORIES=[\"\']?\K[ a-zA-Z0-9,._-]+[^\"\']" <<<"$file_content" 2>/dev/null)"
         if [[ -z "$my_repositories" ]]; then
             log_info "No repositories configured in '$cvmfs_config_file'."
             (( ret_ccc_off < 2 )) && ret_ccc_off=2
