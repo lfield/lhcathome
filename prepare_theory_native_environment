@@ -9,6 +9,51 @@ function fail {
 }
 
 
+function is_uint {
+    # test if $1 is unsigned integer
+    case $1 in
+      '' | *[!0-9]*)
+        return 1
+        ;;
+    esac
+}
+
+
+function version_is_lower {
+    # expects the classical version pattern major.minor.release[.subrelease...]
+    # with major, minor, release being unsigned integers
+    # $1: version to be tested
+    # $2: pattern to be tested against
+    # $3: controls the #sections to be compared (from left to right)
+    # returns
+    # 0: in case of $1 is lower than $2
+    # 1: in case of $1 is equal or higher than $2
+    # 2: in case of an error
+    
+    is_uint "$3" || return 2
+    sections=$3
+    
+    IFS=. read -a ver_arr <<<"$1" || return 2
+    IFS=. read -a pat_arr <<<"$2" || return 2
+    
+    (( ${#ver_arr[@]} < $sections )) || (( ${#pat_arr[@]} < $sections )) && return 2
+
+    for (( i=0; i<$sections; i++ )); do
+        is_uint "${ver_arr[$i]}" || return 2
+        is_uint "${pat_arr[$i]}" || return 2
+    done
+    
+    for (( i=0; i<$sections; i++ )); do
+        (( ${ver_arr[$i]} < ${pat_arr[$i]} )) && return 0
+        (( ${ver_arr[$i]} > ${pat_arr[$i]} )) && return 1
+    done
+    
+    ((sections--))
+    (( ${ver_arr[$sections]} == ${pat_arr[$sections]} )) && return 1
+    return 2
+}
+
+
 function check_whoami {
     eff_user="$(whoami)"
     eff_user_id=$(id -u $eff_user)
@@ -23,6 +68,27 @@ function check_whoami {
 
 
 function prepare_sudoers {
+    sudo_min_version="1.9.10"
+    sudo_version="$(grep -Piom1 'version[^0-9]+\K.*' <(sudo -V 2>/dev/null) 2>/dev/null)"
+    echo "Found Sudo-Version $sudo_version."
+    
+    version_is_lower "${sudo_version%%[^0-9\.]*}" "$sudo_min_version" 3 >/dev/null 2>&1
+    case $? in
+      0)
+        echo "This sudo version is lower than $sudo_min_version."
+        echo "It does not support regular expressions."
+        echo "Hence, sudoers will not be modified."
+        return 1
+        ;;
+      1)
+        # continue
+        ;;
+      *)
+        echo "Can't compare sudo version number."
+        return 1
+        ;;
+    esac
+    
     sudoers_includedir="/etc/sudoers.d"
     sudoers_conf="/etc/sudoers"
     
