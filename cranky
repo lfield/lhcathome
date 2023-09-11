@@ -502,11 +502,14 @@ function check_local_requirements {
     sudo_version="$(grep -Piom1 'version[^0-9]+\K.*' <(sudo -V 2>/dev/null) 2>/dev/null)"
     log_info "Found Sudo-Version $sudo_version."
     
-    if version_is_lower "${sudo_version%%[^0-9\.]*}" "$sudo_min_version" 3; then
+    version_is_lower "${sudo_version%%[^0-9\.]*}" "$sudo_min_version" 3 >/dev/null 2>&1
+    case $? in
+      0)
         log_info "To run this task in new mode"
         log_info "Sudo-Version must be at least $sudo_min_version."
         (( ret_clr < 1 )) && ret_clr=1
-    else
+        ;;
+      1)
         sudoers_file="/etc/sudoers.d/50-lhcathome_boinc_theory_native"
         if ! grep -qm1 "$sudoers_file" <(sudo -nl 2>/dev/null) 2>/dev/null; then
             log_info "Can't find or read '$sudoers_file'."
@@ -518,7 +521,12 @@ function check_local_requirements {
                 (( ret_clr < 1 )) && ret_clr=1
             fi
         fi
-    fi
+        ;;
+      *)
+        log_info "Can't compare sudo version number."
+        (( ret_clr < 1 )) && ret_clr=1
+        ;;
+    esac
 
     if ! command -v cvmfs_config >/dev/null 2>&1; then
         log_error "Can't find 'cvmfs_config'."
