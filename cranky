@@ -326,6 +326,7 @@ function check_cvmfs_configuration_offline {
     if [[ ! -e "$cvmfs_config_file" ]]; then
         # must exist since this is the file that contains the repo list
         log_info "Can't find '$cvmfs_config_file'."
+        log_error "This file is expected to contain the CVMFS repository list."
         (( ret_ccc_off < 2 )) && ret_ccc_off=2
     else
         file_content="$(tac $cvmfs_config_file)"
@@ -402,17 +403,8 @@ function check_cvmfs_configuration_offline {
 
 
 function probe_cvmfs_repos {
-    # this function needs to be revised
-    cvmfs_config probe "$1" >/dev/null 2>&1
-    result="$?"
-    echo "${result}" >"${my_tmp_dir}/result_probe_$1"
-
-    # output from cvmfs_config probe can't be used directly as it prints results delayed
-    if [[ "${result}" == "0" ]]; then
-        : #echo "[INFO] Probing /cvmfs/$1... OK"
-    else
-        log_info "[ERROR] Probing /cvmfs/$1... Failed!"
-    fi
+    cvmfs_config probe "$1" >"${my_tmp_dir}/probe_$1" 2>/dev/null
+    echo $? >"${my_tmp_dir}/result_probe_$1"
 }
 # must be exported to be available for child shells
 export -f probe_cvmfs_repos
@@ -423,18 +415,22 @@ function check_cvmfs_configuration_online {
 
     my_umask="$(umask)"
     umask 077
-    export my_tmp_dir="$(mktemp -d)"
+    export my_tmp_dir="$(mktemp -dp $(pwd))"
     umask "${my_umask}"
 
-    #bg_pids_probe_arr=()
+    bg_pids_probe_arr=()
     for cv_repo in "${required_repos[@]}"; do
-        probe_cvmfs_repos "${cv_repo}"
-        #bg_pids_probe_arr+=($!)
+        probe_cvmfs_repos "${cv_repo}" &
+        bg_pids_probe_arr+=($!)
     done
 
-    #for bg_pid in ${bg_pids_probe_arr[*]}; do
-    #    wait $bg_pid
-    #done
+    for bg_pid in ${bg_pids_probe_arr[*]}; do
+        wait $bg_pid
+    done
+
+    for cv_repo in "${required_repos[@]}"; do
+        log_info "$(cat "${my_tmp_dir}/probe_$cv_repo")"
+    done
 
     if grep -v '^0$' <(cat "${my_tmp_dir}/result_probe_"* 2>&1) >/dev/null 2>&1; then
         (( ret_ccc_onl < 2 )) && ret_ccc_onl=2
@@ -444,7 +440,7 @@ function check_cvmfs_configuration_online {
 
     if (( ret_ccc_onl < 2 )); then
         # prints a hint to the logfile whether openhtc.io and/or a local proxy is used.
-        cvmfs_excerpt=($(cut -d ' ' -f 1,17,18 < <(tail -n1 < <(cvmfs_config stat sft.cern.ch))))
+        cvmfs_excerpt=($(cut -d ' ' -f 1,17,18 < <(tail -n1 < <(cvmfs_config stat ${required_repos[0]}))))
         log_info "Excerpt from \"cvmfs_config stat\": VERSION HOST PROXY"
         log_info "$(echo "${cvmfs_excerpt[0]} ${cvmfs_excerpt[1]%"/cvmfs/sft.cern.ch"} ${cvmfs_excerpt[2]}")"
     fi
@@ -601,7 +597,8 @@ fi
 if (( ret_code_main > 0 )); then
     log_info "Minor requirements are missing. Will try to run this task in legacy mode."
 
-    check_cvmfs_legacy ${app} || early_fail
+    # already checked
+    #check_cvmfs_legacy ${app} || early_fail
     check_runc_legacy || early_fail
     create_filesystem
     create_cgroup_legacy
