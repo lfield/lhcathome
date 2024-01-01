@@ -199,10 +199,10 @@ function pause_legacy {
     else
 	runc="/cvmfs/grid.cern.ch/vc/containers/runc.old"
     fi
-    if [ -f /sys/fs/cgroup/freezer/boinc/freezer.state || -d /sys/fs/cgroup/freezer/boinc ]; then
-	${runc} --root state pause ${result_id}
-    else
+    if [ ! -f /sys/fs/cgroup/freezer/boinc/freezer.state ] || [ ! -d /sys/fs/cgroup/freezer/boinc ]; then
 	log_warning "Cannot pause container as /sys/fs/cgroup/freezer/boinc/freezer.state or /sys/fs/cgroup/freezer/boinc do not exist."
+    else
+	${runc} --root state pause ${result_id}
     fi
 }
 
