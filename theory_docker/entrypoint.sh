@@ -23,10 +23,10 @@ else
     REPOS=$(grep "^CVMFS_REPOSITORIES" /etc/cvmfs/default.local | cut -d'"' -f2 | tr ',' ' ')
 
     for repo in $REPOS; do
-	mkdir -p "/cvmfs/$repo.cern.ch"
-	mount -t cvmfs "$repo.cern.ch" "/cvmfs/$repo.cern.ch"
-
+        mkdir -p "/cvmfs/$repo.cern.ch"
+        mount -t cvmfs "$repo.cern.ch" "/cvmfs/$repo.cern.ch"
     done
+
     cvmfs_config probe >/dev/null || { echo "Mounting CMVFS failed." >&2; exit 1; }
     echo "Mounted CVMFS in the container."
 fi
@@ -45,11 +45,13 @@ mkdir ${WEB_DIR}/logs
 chown -R boinc:boinc ${WEB_DIR}/logs
 chmod a+r ${WEB_DIR}/logs
 mkdir  /run/lighttpd/
+
 cat <<EOF >> /etc/lighttpd/lighttpd.conf
 server.bind = "0.0.0.0"
 server.modules += ( "mod_dirlisting" )
 dir-listing.activate = "enable"
 EOF
+
 lighttpd -D -f /etc/lighttpd/lighttpd.conf &
 
 # Copy the input file to the working directory
@@ -69,9 +71,10 @@ head -n 2 ${RUN_DIR}/runRivet.log >&2
 
 # Create the output file
 if [ -f ${RUN_DIR}/runRivet.log ]; then
-    # To be compatable with the output template for vbox apps
+    # To be compatible with the output template for vbox apps
     mkdir ${SLOT_DIR}/shared
-    tar -zcf ${SLOT_DIR}/shared/output.tgz  --exclude bin --exclude runPost.sh  --exclude html --exclude init_data.xml -C ${RUN_DIR} . >/dev/null
+    tar -zcf ${SLOT_DIR}/shared/output.tgz  --exclude bin --exclude runPost.sh  \
+        --exclude html --exclude init_data.xml -C ${RUN_DIR} . >/dev/null
 else
     echo "No output found."
 fi
