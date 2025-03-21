@@ -60,8 +60,8 @@ chown -R boinc:boinc ${RUN_DIR}
 chmod a+x ${RUN_DIR}/input
 
 # Write the log file to the Web location and slot directory
-tail -F ${RUN_DIR}/runRivet.log > ${WEB_DIR}/logs/running.log 2>/dev/null &
-tail -F ${RUN_DIR}/runRivet.log > ${SLOT_DIR}/runRivet.log 2>/dev/null &
+tee ${WEB_DIR}/logs/running.log > ${SLOT_DIR}/runRivet.log 2> /dev/null \
+    < <(stdbuf -oL tail -F ${RUN_DIR}/runRivet.log 2> /dev/null) &
 
 # Run the job
 /sbin/runuser - boinc -c "cd ${RUN_DIR} && ./input 2>&1"
