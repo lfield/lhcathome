@@ -48,7 +48,7 @@ else
         # It is highly recommended since in this branch the containers
         # do not share a common cache.
         #
-        echo 'CVMFS_HTTP_PROXY="${http_proxy};DIRECT"' >> /etc/cvmfs/default.local
+        echo "CVMFS_HTTP_PROXY=\"${http_proxy};DIRECT\"" >> /etc/cvmfs/default.local
     else
         echo 'CVMFS_HTTP_PROXY="DIRECT"' >> /etc/cvmfs/default.local
     fi
