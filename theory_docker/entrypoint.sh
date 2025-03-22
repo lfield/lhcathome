@@ -11,23 +11,68 @@ cat <<EOF > /etc/cvmfs/default.local
 CVMFS_REPOSITORIES="grid,sft,alice"
 EOF
 
-# Check if CVMFS is mounted via the host
-cvmfs_config probe >/dev/null
-RET_VAL=$?
+# Test host's CVMFS first.
+# Avoid CVMFS inside the container is accidentally being used
+#
+suffix="$(mktemp -u XXXXXXXX)"
+cmd="$(command -v cvmfs_config)"
+[ ! -z "${cmd}" ] && rename "${cmd}" "${cmd}${suffix}" "${cmd}" 2> /dev/null
+dir="/etc/cvmfs"
+[ -d "${dir}" ] && rename "${dir}/" "${dir}${suffix}/" "${dir}/" 2> /dev/null
 
-# Try to mount CVMFS in the container if not found on the host
-if [ "${RET_VAL}" == 0 ]; then
-    echo "Using CVMFS on the host." 
+if [ -d "/cvmfs/cvmfs-config.cern.ch/etc" ]; then
+    # This succeeds if
+    # - the repo is already mounted by the host's CVMFS
+    # - the host's autofs mounts it now for the test
+    # Test cvmfs-config.cern.ch since it must be mounted prior to any other CERN repo.
+    #
+    echo "Using CVMFS on the host."
 else
-    echo 'CVMFS_HTTP_PROXY="DIRECT"' >> /etc/cvmfs/default.local
-    REPOS=$(grep "^CVMFS_REPOSITORIES" /etc/cvmfs/default.local | cut -d'"' -f2 | tr ',' ' ')
+    # CVMFS is not available on the host.
+    # Reactivate 'cvmfs_config' and '/etc/cvmfs',
+    # then try to mount CVMFS in the container.
+    #
+    [ ! -z "${cmd}" ] && rename "${cmd}${suffix}" "${cmd}" "${cmd}${suffix}" 2> /dev/null
+    [ -d "${dir}${suffix}" ] && rename "${dir}${suffix}/" "${dir}/" "${dir}${suffix}/" 2> /dev/null
 
+    # Complete the configuration
+    #
+    mkdir -p "/etc/cvmfs/config.d"
+    echo 'CVMFS_CONFIG_REPO_REQUIRED=no' >> /etc/cvmfs/config.d/cvmfs-config.cern.ch.local
+
+    mkdir -p "/etc/cvmfs/domain.d"
+    echo 'CVMFS_CONFIG_REPO_REQUIRED=yes' >> /etc/cvmfs/domain.d/cern.ch.local
+
+    if [ ! -z "${http_proxy}" ]; then
+        # Use it if forwarded via docker environment.
+        # It is highly recommended since in this branch the containers
+        # do not share a common cache.
+        #
+        echo 'CVMFS_HTTP_PROXY="${http_proxy};DIRECT"' >> /etc/cvmfs/default.local
+    else
+        echo 'CVMFS_HTTP_PROXY="DIRECT"' >> /etc/cvmfs/default.local
+    fi
+    if [ ! -z "${CVMFS_USE_CDN}" ]; then
+        # Use what is forwarded via docker environment.
+        #
+        echo "CVMFS_USE_CDN=${CVMFS_USE_CDN}" >> /etc/cvmfs/default.local
+    else
+        # preferred default to avoid hammering the stratum 1 servers
+        #
+        echo 'CVMFS_USE_CDN=yes' >> /etc/cvmfs/default.local
+    fi
+
+    REPOS="cvmfs-config $(grep "^CVMFS_REPOSITORIES" /etc/cvmfs/default.local | cut -d'"' -f2 | tr ',' ' ')"
+        # 'cvmfs-config' MUST be the first!
+        #
     for repo in $REPOS; do
         mkdir -p "/cvmfs/$repo.cern.ch"
-        mount -t cvmfs "$repo.cern.ch" "/cvmfs/$repo.cern.ch"
+        mount -t cvmfs -o noatime,_netdev,nodev "$repo.cern.ch" "/cvmfs/$repo.cern.ch"
+        cvmfs_config probe $repo.cern.ch >/dev/null || \
+            { echo "Mounting '$repo.cern.ch' failed." >&2; exit 1; }
     done
 
-    cvmfs_config probe >/dev/null || { echo "Mounting CMVFS failed." >&2; exit 1; }
+    cvmfs_config stat
     echo "Mounted CVMFS in the container."
 fi
 
