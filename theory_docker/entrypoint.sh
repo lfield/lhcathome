@@ -1,4 +1,21 @@
 #!/bin/sh
+
+function boinc_shutdown {
+    # Forward exit codes to BOINC.
+    # Exit codes known by BOINC
+    # 206: EXIT_INIT_FAILURE
+    # 208: EXIT_SUB_TASK_FAILURE
+    #
+    # Modern multi CPU computer can burn lots of tasks within just a few minutes.
+    # A sleep reduces the load on the client as well as on the server.
+    # It also softens the negative impact of failing batches to work fetch calculation.
+    # for dev : '-i 17-29'
+    # for prod: '-i 720-900'
+    #
+    sleep $(shuf -n 1 -i 17-29)
+    exit $1
+}
+
 SLOT_DIR="/boinc_slot_dir"
 RUN_DIR="/scratch"
 WEB_DIR="/var/www/lighttpd"
@@ -69,7 +86,7 @@ else
         mkdir -p "/cvmfs/$repo.cern.ch"
         mount -t cvmfs -o noatime,_netdev,nodev "$repo.cern.ch" "/cvmfs/$repo.cern.ch"
         cvmfs_config probe $repo.cern.ch >/dev/null || \
-            { echo "Mounting '$repo.cern.ch' failed." >&2; exit 1; }
+            { echo "Mounting '$repo.cern.ch' failed." >&2; boinc_shutdown 206; }
     done
 
     cvmfs_config stat
@@ -126,9 +143,9 @@ fi
 
 # Check for the output file
 if [ -f ${SLOT_DIR}/shared/output.tgz ]; then
-    rm -rf ${RUN_DIR}
     echo "Job Finished"
 else
-    rm -rf ${RUN_DIR}
     echo "Job Failed"
+    # EXIT_SUB_TASK_FAILURE
+    boinc_shutdown 208
 fi
