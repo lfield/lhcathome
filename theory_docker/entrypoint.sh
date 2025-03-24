@@ -16,6 +16,100 @@ function boinc_shutdown {
     exit $1
 }
 
+function print_hint_header {
+cat << EOF
+${separator}
+                        IMPORTANT HINT(S)!
+${separator}
+CVMFS server: ${cvmfs_excerpt[1]}
+CVMFS proxy:  ${cvmfs_excerpt[2]}
+EOF
+}
+
+function print_hint_footer {
+    if (( proxy_links_required == 1 )); then
+cat << EOF
+More info how to configure a local HTTP proxy:
+https://lhcathome.cern.ch/lhcathome/forum_thread.php?id=5473
+https://lhcathome.cern.ch/lhcathome/forum_thread.php?id=5474
+EOF
+    fi
+    if (( cvmfs_links_required == 1 )); then
+cat << EOF
+More info how to configure CVMFS:
+https://lhcathome.cern.ch/lhcathome/forum_thread.php?id=5594
+https://lhcathome.cern.ch/lhcathome/forum_thread.php?id=5595
+EOF
+    fi
+cat << EOF
+${separator}
+EOF
+}
+
+function log_cvmfs_excerpt {
+    # prints to the logfile whether openhtc.io and/or a local proxy is used
+    #
+    cvmfs_excerpt=($(cut -d ' ' -f 1,17,18 < <(tail -n1 < <(cvmfs_config stat cvmfs-config.cern.ch))))
+    cvmfs_excerpt[1]="${cvmfs_excerpt[1]%"/cvmfs/cvmfs-config.cern.ch"}"
+    output="Excerpt from \"cvmfs_config stat\": VERSION HOST PROXY
+${cvmfs_excerpt[0]} ${cvmfs_excerpt[1]} ${cvmfs_excerpt[2]}"
+    echo "${output}"
+
+    # Print hints whether the CVMFS configuration should be revised
+    #
+    proxy_links_required=0
+    cvmfs_links_required=0
+    output=""
+    separator="******************************************************************"
+
+    if ! grep -m1 'openhtc\.io' <<<"${cvmfs_excerpt[1]}" > /dev/null 2>&1; then
+        if [ ${cvmfs_excerpt[2]} == "DIRECT" ]; then
+            output="$(print_hint_header)
+Stratum-1 server found.
+Stratum-1 servers must not be used directly.
+Instead, set up a local HTTP proxy.
+Also add \"CVMFS_USE_CDN=yes\" to \"/etc/cvmfs/default.local\".
+"
+            proxy_links_required=1
+            cvmfs_links_required=1
+            output="${output}$(print_hint_footer)"
+            echo "${output}"
+        else
+            output="$(print_hint_header)
+Stratum-1 server found.
+To improve the CVMFS efficiency please add
+\"CVMFS_USE_CDN=yes\" to \"/etc/cvmfs/default.local\".
+"
+            cvmfs_links_required=1
+            output="${output}$(print_hint_footer)"
+            echo "${output}"
+        fi
+    fi
+
+    if grep -m1 'openhtc\.io' <<<"${cvmfs_excerpt[1]}" > /dev/null 2>&1 &&
+        [ ${cvmfs_excerpt[2]} == "DIRECT" ]; then
+        if [ $1 == "local" ]; then
+            output="$(print_hint_header)
+No local HTTP proxy found.
+With this setup concurrently running containers can't share
+a common CVMFS cache. A local HTTP proxy is therefore
+highly recommended.
+"
+            proxy_links_required=1
+            output="${output}$(print_hint_footer)"
+            echo "${output}"
+        else
+            output="$(print_hint_header)
+No local HTTP proxy found.
+A local HTTP proxy is recommended to improve the CVMFS efficiency.
+"
+            proxy_links_required=1
+            output="${output}$(print_hint_footer)"
+            echo "${output}"
+        fi
+    fi
+}
+
 SLOT_DIR="/boinc_slot_dir"
 RUN_DIR="/scratch"
 WEB_DIR="/var/www/lighttpd"
@@ -42,8 +136,12 @@ if [ -d "/cvmfs/cvmfs-config.cern.ch/etc" ]; then
     # - the repo is already mounted by the host's CVMFS
     # - the host's autofs mounts it now for the test
     # Test cvmfs-config.cern.ch since it must be mounted prior to any other CERN repo.
+    # Reactivate 'cvmfs_config' to ensure 'log_cvmfs_excerpt' can be run.
     #
+    [ ! -z "${cmd}" ] && rename "${cmd}${suffix}" "${cmd}" "${cmd}${suffix}" 2> /dev/null
+    [ -d "${dir}${suffix}" ] && rename "${dir}${suffix}/" "${dir}/" "${dir}${suffix}/" 2> /dev/null
     echo "Using CVMFS on the host."
+    log_cvmfs_excerpt host
 else
     # CVMFS is not available on the host.
     # Reactivate 'cvmfs_config' and '/etc/cvmfs',
@@ -84,13 +182,13 @@ else
         #
     for repo in $REPOS; do
         mkdir -p "/cvmfs/$repo.cern.ch"
-        mount -t cvmfs -o noatime,_netdev,nodev "$repo.cern.ch" "/cvmfs/$repo.cern.ch"
+        mount -t cvmfs -o noatime,_netdev,nodev "$repo.cern.ch" "/cvmfs/$repo.cern.ch" > /dev/null
         cvmfs_config probe $repo.cern.ch >/dev/null || \
             { echo "Mounting '$repo.cern.ch' failed." >&2; boinc_shutdown 206; }
     done
 
-    cvmfs_config stat
     echo "Mounted CVMFS in the container."
+    log_cvmfs_excerpt local
 fi
 
 # Install Copilot
