@@ -13,4 +13,4 @@ RUN useradd -m boinc
 EXPOSE 80
 
 WORKDIR /boinc_slot_dir
-CMD ./entrypoint.sh
+CMD ./entrypoint.sh |tee /boinc_slot_dir/entrypoint.log
