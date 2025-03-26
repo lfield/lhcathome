@@ -1,6 +1,7 @@
 #!/bin/sh
 
 function boinc_shutdown {
+    # usage: boinc_shutdown exit_code shutdown_delay
     # Forward exit codes to BOINC.
     # Exit codes known by BOINC
     # 206: EXIT_INIT_FAILURE
@@ -9,11 +10,25 @@ function boinc_shutdown {
     # Modern multi CPU computer can burn lots of tasks within just a few minutes.
     # A sleep reduces the load on the client as well as on the server.
     # It also softens the negative impact of failing batches to work fetch calculation.
-    # for dev : '-i 17-29'
-    # for prod: '-i 720-900'
+    # for prod: '-i 787-983'
+    # for dev/local : '-i 23-37'
     #
-    sleep $(shuf -n 1 -i 17-29)
-    exit $1
+    exit_code=$1
+    echo "boinc_shutdown called with exit code $exit_code"
+    echo "sd_delay: $2"
+
+    if grep -m1 '<project_dir>.*/projects/lhcathome\.cern\.ch_lhcathome' \
+        "${SLOT_DIR}/init_data.xml" > /dev/null 2>&1; then
+        sleep $2
+    else
+        # lhcathomedev and standalone
+        exit_code=0
+        sleep $(shuf -n 1 -i 23-37)
+    fi
+
+    # add 2 blank lines to separate stdout and stderr in stderr.txt
+    echo -e "\n"
+    exit $exit_code
 }
 
 function print_hint_header {
@@ -131,6 +146,9 @@ cmd="$(command -v cvmfs_config)"
 dir="/etc/cvmfs"
 [ -d "${dir}" ] && rename "${dir}/" "${dir}${suffix}/" "${dir}/" 2> /dev/null
 
+# used as '$2' in 'boinc_shutdown'
+sd_delay=$(shuf -n 1 -i 787-983)
+
 if [ -d "/cvmfs/cvmfs-config.cern.ch/etc" ]; then
     # This succeeds if
     # - the repo is already mounted by the host's CVMFS
@@ -141,6 +159,16 @@ if [ -d "/cvmfs/cvmfs-config.cern.ch/etc" ]; then
     [ ! -z "${cmd}" ] && rename "${cmd}${suffix}" "${cmd}" "${cmd}${suffix}" 2> /dev/null
     [ -d "${dir}${suffix}" ] && rename "${dir}${suffix}/" "${dir}/" "${dir}${suffix}/" 2> /dev/null
     echo "Using CVMFS on the host."
+
+    REPOS="cvmfs-config $(grep "^CVMFS_REPOSITORIES" /etc/cvmfs/default.local | cut -d'"' -f2 | tr ',' ' ')"
+        # 'cvmfs-config' MUST be the first!
+        #
+    for repo in $REPOS; do
+        cvmfs_config probe $repo.cern.ch >/dev/null || \
+            { echo "Probing '$repo.cern.ch' failed." >&2; cvmfs_probe_failed=1; }
+    done
+
+    (( cvmfs_probe_failed == 1 )) && boinc_shutdown 206 ${sd_delay}
     log_cvmfs_excerpt host
 else
     # CVMFS is not available on the host.
@@ -149,6 +177,7 @@ else
     #
     [ ! -z "${cmd}" ] && rename "${cmd}${suffix}" "${cmd}" "${cmd}${suffix}" 2> /dev/null
     [ -d "${dir}${suffix}" ] && rename "${dir}${suffix}/" "${dir}/" "${dir}${suffix}/" 2> /dev/null
+    echo "Using CVMFS in the container."
 
     # Complete the configuration
     #
@@ -184,10 +213,10 @@ else
         mkdir -p "/cvmfs/$repo.cern.ch"
         mount -t cvmfs -o noatime,_netdev,nodev "$repo.cern.ch" "/cvmfs/$repo.cern.ch" > /dev/null
         cvmfs_config probe $repo.cern.ch >/dev/null || \
-            { echo "Mounting '$repo.cern.ch' failed." >&2; boinc_shutdown 206; }
+            { echo "Probing '$repo.cern.ch' failed." >&2; cvmfs_probe_failed=1; }
     done
 
-    echo "Mounted CVMFS in the container."
+    (( cvmfs_probe_failed == 1 )) && boinc_shutdown 206 ${sd_delay}
     log_cvmfs_excerpt local
 fi
 
@@ -239,11 +268,40 @@ else
     echo "No output found."
 fi
 
+logfile="${SLOT_DIR}/entrypoint.log"
+
+if [ -f "${logfile}" ]; then
+    # flush write buffer
+    sync -d "${logfile}"
+    if grep --line-buffered -m1 'job: run exitcode=0' \
+        <(stdbuf -oL tac "${logfile}") > /dev/null 2>&1; then
+        # If 'job run' succeeds then exit without delay.
+        #
+        sd_delay=0
+    else
+        # Even if 'job run' fails it can be a success at BOINC level.
+        # Only exit with delay if they are short runners.
+        #
+        job_cpuusage=$(grep --line-buffered -Pom1 'job: cpuusage=\K[0-9]+' \
+            <(stdbuf -oL tac "${logfile}") 2> /dev/null)
+        if [ ! -z "${job_cpuusage}" ]; then
+            if (( sd_delay <= job_cpuusage )); then
+                sd_delay=0
+            else
+                sd_delay=$(( sd_delay - job_cpuusage ))
+            fi
+        fi
+    fi
+fi
+
 # Check for the output file
 if [ -f ${SLOT_DIR}/shared/output.tgz ]; then
     echo "Job Finished"
+    boinc_shutdown 0 ${sd_delay}
 else
     echo "Job Failed"
-    # EXIT_SUB_TASK_FAILURE
-    boinc_shutdown 208
+    # should be 208 EXIT_SUB_TASK_FAILURE
+    # for now '0' since docker wrapper can't forward those error codes
+    #
+    boinc_shutdown 0 ${sd_delay}
 fi
