@@ -1,0 +1,4 @@
+workdir="/boinc_slot_dir"
+web_graphics_guest_port = 80
+create_args = "-v /cvmfs:/cvmfs:shared"
+verbose = 1

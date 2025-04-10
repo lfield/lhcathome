@@ -1,0 +1,19 @@
+<vbox_job>
+	<os_name>Linux26_64</os_name>
+	<memory_size_mb>630</memory_size_mb>
+	<enable_network/>
+    	<enable_remotedesktop/>
+        <copy_to_shared>init_data.xml</copy_to_shared>
+        <copy_to_shared>input</copy_to_shared>
+	<completion_trigger_file>shutdown</completion_trigger_file>
+        <enable_shared_directory/>
+	<pf_host_port>7859</pf_host_port>
+	<pf_guest_port>80</pf_guest_port>
+	<job_duration>864000</job_duration>
+	<enable_vm_savestate_usage/>
+	<disable_automatic_checkpoints/>
+	<heartbeat_filename>heartbeat</heartbeat_filename>
+	<minimum_heartbeat_interval>1800</minimum_heartbeat_interval>
+        <enable_screenshots_on_error/>
+        <multiattach_vdi_file>Theory.vdi</multiattach_vdi_file>
+</vbox_job>

@@ -1,0 +1,17 @@
+[Unit]
+Description=Run BOINC Job
+DefaultDependencies=no
+After=getty.target
+
+[Service]
+Environment=HOME=/root
+WorkingDirectory=/root
+ExecStartPre=/bin/cvmfs_config probe
+ExecStart=-/sbin/entrypoint.sh
+Type=idle
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+KillMode=process
+IgnoreSIGPIPE=no
+SendSIGHUP=yes

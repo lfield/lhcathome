@@ -1,0 +1,99 @@
+#!/bin/bash
+NAME="BUILD_$(date +%Y_%m_%d_%H_%M)"
+TEMP_DIR=$(mktemp -d)
+USER_DATA_FILE='user_data'
+CONTEXT_ISO="${TEMP_DIR}/context.iso"
+IMAGE_FILE="${TEMP_DIR}/${NAME}.vdi"
+
+echo "Generating ISO image for cloud-init..."
+
+mkdir -p ${TEMP_DIR}/cidata
+
+# User-data (Cloud-Init script)
+cp ${USER_DATA_FILE} ${TEMP_DIR}/cidata/user-data
+BOINC_PASSWORD=$(openssl rand -base64 12)
+PASSWORD_HASH=$(echo -n "$BOINC_PASSWORD" | openssl passwd -6 -stdin)
+sed -i "s| passwd: .*| passwd: ${PASSWORD_HASH}|" ${TEMP_DIR}/cidata/user-data
+
+# Meta-data (Ensure hostname & instance ID)
+cat <<EOF > ${TEMP_DIR}/cidata/meta-data
+instance-id: iid-123456
+local-hostname: almalinux-vm
+EOF
+
+# Network Config (Optional)
+cat <<EOF > ${TEMP_DIR}/cidata/network-config
+version: 2
+ethernets:
+  eth0:
+    dhcp4: true
+EOF
+
+# Create the contextualization ISO (MUST use 'cidata' label)
+rm -f ${CONTEXT_ISO}
+genisoimage -output ${CONTEXT_ISO} --input-charset=UTF-8 -volid cidata -joliet -rock ${TEMP_DIR}/cidata 2> /dev/null
+echo "ISO generated: ${CONTEXT_ISO}"
+
+# Variables
+ALMA_URL="https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2"
+
+# Download AlmaLinux cloud image
+if [ ! -f /tmp/AlmaLinux-9.qcow2 ]; then
+     wget ${ALMA_URL} -O /tmp/AlmaLinux-9.qcow2
+fi
+
+GUEST_URL="https://download.virtualbox.org/virtualbox/7.1.6/VBoxGuestAdditions_7.1.6.iso"
+
+if [ ! -f /tmp/VBoxGuestAdditions ]; then
+    wget ${GUEST_URL} -O /tmp/VBoxGuestAdditions
+fi
+
+     
+# Convert QCOW2 to VDI
+qemu-img convert -f qcow2 -O vdi /tmp/AlmaLinux-9.qcow2 ${IMAGE_FILE}
+
+# Clean up old VirtualBox disks
+files=$(VBoxManage list hdds | grep alma.vdi | cut -d':' -f2)
+for file in ${files}; do
+    echo "Deleting old AlmaLinux image"
+    vboxmanage closemedium disk ${file} --delete
+done
+
+# Clean up old contextualization ISOs
+files=$(VBoxManage list dvds | grep context.iso | cut -d':' -f2)
+for file in ${files}; do
+    echo "Deleting old contextualization"
+    vboxmanage closemedium dvd ${file} --delete
+done  
+
+echo "Creating ${NAME} VirtualBox VM..."
+VBoxManage createvm --name ${NAME} --register
+VBoxManage modifyvm ${NAME} --clipboard-mode bidirectional
+VBoxManage modifyvm ${NAME} --ostype Linux26_64 --memory 2048
+VBoxManage modifyvm ${NAME} --ioapic on --boot1 disk
+VBoxManage storagectl ${NAME} --name SATA --add sata
+VBoxManage storageattach ${NAME} --storagectl SATA --device 0 --port 0 --medium ${IMAGE_FILE} --type hdd
+VBoxManage storageattach ${NAME} --storagectl SATA --device 0 --port 1 --medium ${CONTEXT_ISO} --type dvddrive
+VBoxManage storageattach ${NAME} --storagectl SATA --device 0 --port 2 --type dvddrive --medium /tmp/VBoxGuestAdditions
+
+VBoxManage modifyvm ${NAME} --nic1 nat --nictype1 82540EM --cableconnected1 on
+VBoxManage modifyvm ${NAME} --natpf1 "ssh,tcp,,2222,,22"
+
+# Setup shared folder
+if [ ! -d "$(pwd)/shared" ] ; then
+    mkdir "$(pwd)/shared"
+fi
+
+VBoxManage sharedfolder add ${NAME} --name "shared" --hostpath "$(pwd)/shared"
+
+# Start VM
+VBoxManage modifyvm ${NAME} --uart1 0x3F8 4 --uartmode1 file console.log
+VBoxManage startvm ${NAME} --type headless
+
+echo "Please wait until the VM has completly booted."
+echo "After this you may delete the context.iso."
+echo "VM image : ${IMAGE_FILE}"
+echo 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222 boinc@localhost'
+echo "Password: $BOINC_PASSWORD" | tee boinc_passwd
+
+

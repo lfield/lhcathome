@@ -1,0 +1,63 @@
+#cloud-config
+ssh_pwauth: true
+users:
+  - lock-passwd: false
+    name: boinc
+    passwd: 
+    sudo: ALL=(ALL) NOPASSWD:ALL
+bootcmd:
+  # Add swap
+  - fallocate -l 1G /var/swapfile
+  - chmod 0600 /var/swapfile
+  - mkswap /var/swapfile
+  - swapon /var/swapfile
+  - echo '/var/swapfile none swap sw 0 0' >> /etc/fstab
+runcmd:
+  # Build and install Vbox Guest Additions
+  - mount /dev/sr1 /mnt
+  - /mnt/VBoxLinuxAdditions.run --target /tmp/VBoxGA --noexec
+  - umount /mnt
+  - eject /dev/sr1
+  - dnf install -y bzip2 make gcc kernel-devel-$(uname -r)
+  - cd /tmp/VBoxGA ; tar -xvjf VBoxGuestAdditions-x86.tar.bz2
+  - cd /tmp/VBoxGA/src/vboxguest-7.1.6 ; make
+  - mkdir -p /lib/modules/$(uname -r)/extra/
+  - cp /tmp/VBoxGA/src/vboxguest-7.1.6/vboxguest/vboxguest.ko /lib/modules/$(uname -r)/extra/
+  - cp /tmp/VBoxGA/src/vboxguest-7.1.6/vboxsf/vboxsf.ko /lib/modules/$(uname -r)/extra/
+  - echo "vboxsf" > /etc/modules-load.d/virtualbox.conf
+  - depmod -a
+  - modprobe vboxguest
+  - modprobe vboxsf
+  # Mount Shared
+  - mkdir /shared
+  - mount -t vboxsf shared /shared
+  - echo "shared /shared vboxsf defaults 0 0" >> /etc/fstab
+  - dnf install -y https://cvmrepo.s3.cern.ch/cvmrepo/yum/cvmfs-release-latest.noarch.rpm
+   # Deploy vboxmonitor
+  - dnf install -y epel-release
+  - dnf install -y wget unzip bc libxcrypt-compat lighttpd
+  - wget https://boinc.berkeley.edu/dl/vboxmonitor_26086_x86_64-pc-linux-gnu.zip -O /tmp/vboxmonitor.zip
+  - unzip -d /tmp /tmp/vboxmonitor.zip
+  - mv /tmp/vboxmonitor_26086_x86_64-pc-linux-gnu /sbin/vboxmonitor
+  - chmod +x /sbin/vboxmonitor
+  - eject /dev/sr0
+  # Setup CVMFS
+  - dnf install -y cvmfs nmap-ncat
+  - echo "CVMFS_CONFIG_REPO_REQUIRED=no" >> /etc/cvmfs/config.d/cvmfs-config.cern.ch.local
+  - echo "CVMFS_CONFIG_REPO_REQUIRED=yes" >> /etc/cvmfs/domain.d/cern.ch.local
+  - cvmfs_config setup
+  # Deploy App
+  - cp /cvmfs/grid.cern.ch/vc/vm-master/sbin/boinc-shutdown -O /sbin/boinc-shutdown
+  - echo "* * * * * root touch /shared/heartbeat " > /etc/cron.d/heartbeat-agent
+  - systemctl enable lighttpd
+  - wget https://gitlab.cern.ch/vc/apps/-/archive/master/apps-master.tar.gz
+  - tar -zxvf apps-master.tar.gz
+  - cp apps-master/Theory/entrypoint.sh /sbin/
+  - chmod a+x /sbin/entrypoint.sh
+  - cp apps-master/etc/default.local /etc/cvmfs/default.local
+  - cp apps-master/etc/boinc-job.service /etc/systemd/system/boinc-job.service
+  - cp apps-master/tools/cleanup.sh /sbin/cleanup.sh
+  - ln -sf /etc/systemd/system/boinc-job.service /etc/systemd/system/multi-user.target.wants/boinc-job.service
+  - systemctl enable boinc-job
+  - rmmod sr_mod
+  - reboot
