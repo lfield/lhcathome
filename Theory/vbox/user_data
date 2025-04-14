@@ -36,24 +36,23 @@ runcmd:
    # Deploy vboxmonitor
   - dnf install -y epel-release
   - dnf install -y wget unzip bc libxcrypt-compat lighttpd
+  - chcon -R -h -t httpd_sys_content_t /var/www/lighttpd
   - wget https://boinc.berkeley.edu/dl/vboxmonitor_26086_x86_64-pc-linux-gnu.zip -O /tmp/vboxmonitor.zip
   - unzip -d /tmp /tmp/vboxmonitor.zip
   - mv /tmp/vboxmonitor_26086_x86_64-pc-linux-gnu /sbin/vboxmonitor
   - chmod +x /sbin/vboxmonitor
   - eject /dev/sr0
   # Setup CVMFS
-  - dnf install -y cvmfs nmap-ncat
-  - echo "CVMFS_CONFIG_REPO_REQUIRED=no" >> /etc/cvmfs/config.d/cvmfs-config.cern.ch.local
-  - echo "CVMFS_CONFIG_REPO_REQUIRED=yes" >> /etc/cvmfs/domain.d/cern.ch.local
+  - dnf install -y cvmfs bind-utils netcat
   - cvmfs_config setup
   # Deploy App
-  - cp /cvmfs/grid.cern.ch/vc/vm-master/sbin/boinc-shutdown -O /sbin/boinc-shutdown
   - echo "* * * * * root touch /shared/heartbeat " > /etc/cron.d/heartbeat-agent
-  - systemctl enable lighttpd
   - wget https://gitlab.cern.ch/vc/apps/-/archive/master/apps-master.tar.gz
   - tar -zxvf apps-master.tar.gz
   - cp apps-master/Theory/entrypoint.sh /sbin/
   - chmod a+x /sbin/entrypoint.sh
+  - cp apps-master/tools/boinc-shutdown /sbin/
+  - chmod a+x /sbin/boinc-shutdown
   - cp apps-master/etc/default.local /etc/cvmfs/default.local
   - cp apps-master/etc/boinc-job.service /etc/systemd/system/boinc-job.service
   - cp apps-master/tools/cleanup.sh /sbin/cleanup.sh
@@ -61,3 +60,4 @@ runcmd:
   - systemctl enable boinc-job
   - rmmod sr_mod
   - reboot
+  
