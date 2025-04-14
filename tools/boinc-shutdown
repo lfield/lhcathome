@@ -1,0 +1,74 @@
+#!/bin/bash
+
+#
+#  Copyright (c) CERN 2016
+#
+#  Licensed under the Apache License, Version 2.0
+#
+#  Author: Laurence Field
+#       
+#
+# There are three main return codes that we use as defiend in result.inc. 
+# case 206: return "EXIT_INIT_FAILURE";
+# case 207: return "EXIT_NO_SUB_TASKS";
+# case 208: return "EXIT_SUB_TASK_FAILURE";
+#
+
+logging_functions="/cvmfs/grid.cern.ch/vc/bin/logging_functions"
+if [ -e ${logging_functions} ]; then
+    . ${logging_functions}
+else
+    echo "ERROR Could not source logging functions from ${logging_functions}." 1>&2
+    exit 1
+fi
+
+function usage {
+    cat <<EOF
+usage: $(basename $0) return_code message
+EOF
+}
+
+if [ "x$2" = "x" ] ; then
+    usage && exit 1
+fi
+
+if [ $1 -eq 0 ] ; then
+    log_info "$2"
+    # in case of a success shutdown immediately
+    shutdown_delay=0
+else
+    log_error "$2"
+    # in case of an error allow the user to read the console output
+    shutdown_delay=30
+
+    BOINC_SHARED=${BOINC_SHARED:-"/var/lib/boinc/shared"}
+    # these variables need to be refreshed
+    BOINC_USERNAME="N/A"
+    BOINC_USERID="N/A"
+
+    if [ -e ${BOINC_SHARED}/init_data.xml ]; then
+        BOINC_USERNAME=$(xmllint ${BOINC_SHARED}/init_data.xml | grep "^<user_name" | cut -d ">" -f2 | cut -d "<" -f1)
+        BOINC_USERID=$(xmllint ${BOINC_SHARED}/init_data.xml | grep "^<userid" | cut -d ">" -f2 | cut -d "<" -f1)
+    fi
+
+    log_debug "Volunteer: ${BOINC_USERNAME} (${BOINC_USERID})"
+fi
+
+log_info "Shutting Down."
+rm -f /var/www/html/logs/*
+rm -f /var/log/condor/*
+rm -f /tmp/x509*
+
+BOINC_SHARED=${BOINC_SHARED:-"/var/lib/boinc/shared"}
+
+if [ -f /sbin/vboxmonitor ] && [ -d ${BOINC_SHARED} ]; then
+    sleep $shutdown_delay
+    # use only 1 echo command to minimize the risk of 
+    # a race condition on heavily loaded computers that may
+    # shut down before the message is completely written
+    echo -e "$1\n$1\n$2" > ${BOINC_SHARED}/shutdown
+    exit $1
+else
+    /sbin/shutdown -h now
+    exit $1
+fi
