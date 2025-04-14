@@ -1,14 +1,13 @@
 [Unit]
 Description=Run BOINC Job
 DefaultDependencies=no
-After=getty.target
+After=getty.target network-online.target
 
 [Service]
 Environment=HOME=/root
 WorkingDirectory=/root
-ExecStartPre=/bin/cvmfs_config probe
-ExecStart=-/sbin/entrypoint.sh
-Type=idle
+ExecStart=/bin/sh -c 'exec /sbin/entrypoint.sh |/sbin/vboxmonitor'
+Nice=19
 StandardOutput=tty
 StandardError=tty
 TTYPath=/dev/tty1
