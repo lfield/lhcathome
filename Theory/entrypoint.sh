@@ -89,8 +89,9 @@ function get_wpad_from_lhchomeproxy {
         ip_address_list=($(grep -E '^[0-9][.0-9]+$' \
             <(dig +short -t A ${wpad_service}.)))
         # IPv6 list
-        ip_address_list=(${ip_address_list[@]} $(grep ':' \
-            <(dig +short -t AAAA ${wpad_service}.)))
+        for ip_v6 in $(grep ':' <(dig +short -t AAAA ${wpad_service}.)); do
+            ip_address_list=(${ip_address_list[@]} "[${ip_v6}]")
+        done
 
         for ip_address in "${ip_address_list[@]}"; do
             if curl -f -L -m 10 -s -o "$lhchome_wpad_tmp" \
@@ -135,8 +136,9 @@ function get_wpad_from_grid_wpad {
     ip_address_list=($(grep -E '^[0-9][.0-9]+$' \
         <(dig +short +search -t A grid-wpad)))
     # IPv6 list
-    ip_address_list=(${ip_address_list[@]} $(grep ':' \
-        <(dig +short -t AAAA grid-wpad)))
+    for ip_v6 in $(grep ':' <(dig +short -t AAAA grid-wpad)); do
+        ip_address_list=(${ip_address_list[@]} "[${ip_v6}]")
+    done
 
     for ip_address in "${ip_address_list[@]}"; do
         if curl -f -L -m 10 -s -o "$grid_wpad_tmp" \
