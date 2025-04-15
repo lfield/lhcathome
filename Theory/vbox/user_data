@@ -47,15 +47,15 @@ runcmd:
   - cvmfs_config setup
   # Deploy App
   - echo "* * * * * root touch /shared/heartbeat " > /etc/cron.d/heartbeat-agent
-  - wget https://gitlab.cern.ch/vc/apps/-/archive/master/apps-master.tar.gz
-  - tar -zxvf apps-master.tar.gz
-  - cp apps-master/Theory/entrypoint.sh /sbin/
+  - wget https://github.com/lfield/lhcathome/archive/refs/heads/main.zip
+  - unzip main.zip
+  - cp lhcathome-main/Theory/entrypoint.sh /sbin/
   - chmod a+x /sbin/entrypoint.sh
-  - cp apps-master/tools/boinc-shutdown /sbin/
+  - cp lhcathome-main/tools/boinc-shutdown /sbin/
   - chmod a+x /sbin/boinc-shutdown
-  - cp apps-master/etc/default.local /etc/cvmfs/default.local
-  - cp apps-master/etc/boinc-job.service /etc/systemd/system/boinc-job.service
-  - cp apps-master/tools/cleanup.sh /sbin/cleanup.sh
+  - cp lhcathome-main/etc/default.local /etc/cvmfs/default.local
+  - cp lhcathome-main/etc/boinc-job.service /etc/systemd/system/boinc-job.service
+  - cp lhcathome-main/tools/cleanup.sh /sbin/cleanup.sh
   - ln -sf /etc/systemd/system/boinc-job.service /etc/systemd/system/multi-user.target.wants/boinc-job.service
   - systemctl enable boinc-job
   - rmmod sr_mod
