@@ -20,8 +20,16 @@ function start_webserver {
     mount tmpfs -t tmpfs \
         -o nosuid,nodev,noexec,noatime \
         "${WEB_DIR}"
+    chcon -R -h -t httpd_sys_content_t "${WEB_DIR}" > /dev/null 2>&1
     mkdir -p /run/lighttpd/
-    lighttpd -f /etc/lighttpd/lighttpd.conf
+
+cat <<EOF >> /etc/lighttpd/lighttpd.conf
+server.bind := "0.0.0.0"
+server.modules += ( "mod_dirlisting" )
+dir-listing.activate := "enable"
+EOF
+
+    lighttpd -f /etc/lighttpd/lighttpd.conf > /dev/null 2>&1
 }
 
 function boinc_shutdown {
@@ -830,7 +838,7 @@ chmod a+x ${RUN_DIR}/input
 
 # Write the log file to the Web location and slot directory
 tee ${WEB_DIR}/logs/running.log > ${OUT_DIR}/runRivet.log 2> /dev/null \
-    < <(stdbuf -oL tail -F ${RUN_DIR}/runRivet.log 2> /dev/null) &
+    < <(stdbuf -oL tail -F -n +1 ${RUN_DIR}/runRivet.log 2> /dev/null) &
 
 # Restore 'http_proxy'
 if [[ -z "${http_proxy_bak}" ]]; then
