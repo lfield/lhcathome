@@ -702,7 +702,7 @@ wait ${wpad_pid}
 # only for debug
 #ls -dhal ${WEB_DIR}
 #ls -hal ${WEB_DIR}
-cat ${WEB_DIR}/wpad.dat
+#cat ${WEB_DIR}/wpad.dat
 #chmod a+r ${WEB_DIR}/wpad.dat
 curl -s -m 5 -o ${OUT_DIR}/wpad.dat http://localhost/wpad.dat
 
