@@ -36,7 +36,6 @@ runcmd:
    # Deploy vboxmonitor
   - dnf install -y epel-release
   - dnf install -y wget unzip bc libxcrypt-compat lighttpd
-  - chcon -R -h -t httpd_sys_content_t /var/www/lighttpd
   - wget https://boinc.berkeley.edu/dl/vboxmonitor_26086_x86_64-pc-linux-gnu.zip -O /tmp/vboxmonitor.zip
   - unzip -d /tmp /tmp/vboxmonitor.zip
   - mv /tmp/vboxmonitor_26086_x86_64-pc-linux-gnu /sbin/vboxmonitor
