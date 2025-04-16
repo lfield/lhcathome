@@ -642,6 +642,9 @@ fi
 
 separator="******************************************************************"
 
+rm -frd "${RUN_DIR}" &
+pid_clean_rundir=$!
+
 cvmfs_in_container=0
 # used as '$2' in 'boinc_shutdown'
 sd_delay=$(shuf -n 1 -i 787-983)
@@ -827,9 +830,8 @@ chown -R boinc:boinc ${WEB_DIR}/logs
 chmod a+r ${WEB_DIR}/logs
 
 # Copy the input file to the working directory
+wait ${pid_clean_rundir}
 mkdir -p "${RUN_DIR}"
-chown boinc:boinc "${RUN_DIR}"
-chmod 777 "${RUN_DIR}"
 prepare_tmpfs rundir
 
 cp -r ${SLOT_DIR}/input ${RUN_DIR}
@@ -849,7 +851,9 @@ else
 fi
 
 # Run the job
-/sbin/runuser - boinc -c "cd ${RUN_DIR} && ./input 2>&1"
+logfile="${OUT_DIR}/runuser.log"
+tee ${logfile} 2> /dev/null \
+    < <(/sbin/runuser - boinc -c "cd ${RUN_DIR} && ./input 2>&1")
 
 # Print the first line of the log
 head -n 2 ${RUN_DIR}/runRivet.log >&2
@@ -864,13 +868,9 @@ else
     echo "No output found."
 fi
 
-logfile="${OUT_DIR}/entrypoint.log"
-
 if [[ -f "${logfile}" ]]; then
-    # flush write buffer
-    sync -d "${logfile}"
-    if grep --line-buffered -m1 'job: run exitcode=0' \
-        <(stdbuf -oL tac "${logfile}") > /dev/null 2>&1; then
+    if grep -m1 'job: run exitcode=0' \
+        <(tac "${logfile}") > /dev/null 2>&1; then
         # If 'job run' succeeds then exit without delay.
         #
         sd_delay=0
@@ -878,8 +878,8 @@ if [[ -f "${logfile}" ]]; then
         # Even if 'job run' fails it can be a success at BOINC level.
         # Only exit with delay if they are short runners.
         #
-        job_cpuusage=$(grep --line-buffered -Pom1 'job: cpuusage=\K[0-9]+' \
-            <(stdbuf -oL tac "${logfile}") 2> /dev/null)
+        job_cpuusage=$(grep -Pom1 'job: cpuusage=\K[0-9]+' \
+            <(tac "${logfile}") 2> /dev/null)
         if [[ ! -z "${job_cpuusage}" ]]; then
             if (( sd_delay <= job_cpuusage )); then
                 sd_delay=0
