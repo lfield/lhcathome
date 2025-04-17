@@ -16,7 +16,7 @@ REPOS="alice,grid,sft"
 function start_webserver {
     # prepare_tmpfs
     mkdir -p "${WEB_DIR}"
-    rm -r "${WEB_DIR}/*"
+    rm -r "${WEB_DIR}/*" 2> /dev/null
     mount tmpfs -t tmpfs \
         -o nosuid,nodev,noexec,noatime \
         "${WEB_DIR}"
@@ -27,6 +27,7 @@ cat <<EOF >> /etc/lighttpd/lighttpd.conf
 server.bind := "0.0.0.0"
 server.modules += ( "mod_dirlisting" )
 dir-listing.activate := "enable"
+server.use-ipv6 := "disable"
 EOF
 
     lighttpd -f /etc/lighttpd/lighttpd.conf > /dev/null 2>&1
