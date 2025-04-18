@@ -44,6 +44,8 @@ runcmd:
   # Setup CVMFS
   - dnf install -y cvmfs bind-utils netcat
   - cvmfs_config setup
+  # Disable unwanted systemd timer
+  - rm -f /etc/systemd/system/timers.target.wants/dnf-makecache.timer
   # Deploy App
   - echo "* * * * * root touch /shared/heartbeat " > /etc/cron.d/heartbeat-agent
   - wget https://github.com/lfield/lhcathome/archive/refs/heads/main.zip
