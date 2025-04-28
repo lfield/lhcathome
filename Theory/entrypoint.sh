@@ -767,9 +767,10 @@ else
     # since in this branch the containers
     # do not share a common cache.
     #
-    if [[ ! -z "${CVMFS_HTTP_PROXY}" ]]; then
+    if [[ ! -z "${CVMFS_HTTP_PROXY}" ]] && \
+        grep -Ev '[|][[:blank:]]*DIRECT' <<< "${CVMFS_HTTP_PROXY}" > /dev/null 2>&1; then
         # set via environment following the CVMFS rules
-        grep -E ';DIRECT$' <<< "${CVMFS_HTTP_PROXY}" || \
+        grep -E ';DIRECT$' <<< "${CVMFS_HTTP_PROXY}" > /dev/null 2>&1 || \
             CVMFS_HTTP_PROXY="${CVMFS_HTTP_PROXY};DIRECT"
         echo "CVMFS_HTTP_PROXY=\"${CVMFS_HTTP_PROXY}\"" >> "${config_file}"
         echo "CVMFS_PROXY_SHARD=yes" >> "${config_file}"
