@@ -858,10 +858,10 @@ tee ${logfile} 2> /dev/null \
     < <(/sbin/runuser - boinc -c "cd ${RUN_DIR} && ./input 2>&1")
 
 # Print the first line of the log
-head -n 2 ${RUN_DIR}/runRivet.log >&2
+head -n 2 ${OUT_DIR}/runRivet.log >&2
 
 # Create the output file
-if [[ -f ${RUN_DIR}/runRivet.log ]]; then
+if [[ -f ${OUT_DIR}/runRivet.log ]]; then
     # To be compatible with the output template for vbox apps
     out_filename="$(mktemp -u XXXXXXXX)"
     tar -zcf "${OUT_DIR}/${out_filename}.tgz" --exclude bin --exclude runPost.sh  \
