@@ -1,6 +1,6 @@
 <vbox_job>
 	<os_name>Linux26_64</os_name>
-	<memory_size_mb>630</memory_size_mb>
+	<memory_size_mb>1024</memory_size_mb>
 	<enable_network/>
     	<enable_remotedesktop/>
         <copy_to_shared>init_data.xml</copy_to_shared>
@@ -9,7 +9,6 @@
         <enable_shared_directory/>
 	<pf_host_port>7859</pf_host_port>
 	<pf_guest_port>80</pf_guest_port>
-	<job_duration>864000</job_duration>
 	<enable_vm_savestate_usage/>
 	<disable_automatic_checkpoints/>
 	<heartbeat_filename>heartbeat</heartbeat_filename>
