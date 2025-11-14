@@ -643,6 +643,11 @@ fi
 
 separator="******************************************************************"
 
+# ensure 'heartbeat' is touched at least once
+# regular touches are done via cron
+#
+touch "${OUT_DIR}/heartbeat"
+
 rm -frd "${RUN_DIR}" &
 pid_clean_rundir=$!
 
