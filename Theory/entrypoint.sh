@@ -631,6 +631,12 @@ if [[ -d "/boinc_slot_dir" ]]; then
     OUT_DIR="${SLOT_DIR}/shared"
     # ensure this is present to write the log to
     mkdir -p "${OUT_DIR}"
+    # The BOINC client must be able to move the output file out of this
+    # directory. Under the macOS sandbox the client runs as 'boinc_master'
+    # while the container creates this directory as 'boinc_project', so
+    # without group write the client's rename() fails with EACCES and the
+    # task is reported as "Output file ... absent".
+    chmod 0775 "${OUT_DIR}"
 else
     # we are in a vbox VM
     in_container=0
