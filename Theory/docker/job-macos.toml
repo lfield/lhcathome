@@ -1,5 +1,6 @@
 # Package as job.toml for macOS: CVMFS is mounted inside the container.
 workdir="/boinc_slot_dir"
 web_graphics_guest_port = 80
+build_args = "--platform linux/amd64"
 create_args = "--cap-add=SYS_ADMIN --device /dev/fuse"
 verbose = 1
